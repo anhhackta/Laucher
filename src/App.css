@@ -16,12 +16,14 @@ body {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background-color: #000;
+  background-size: cover;
+  background-position: center;
   transition: all 0.3s ease;
 }
 
 .app.dark {
-  background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+  filter: brightness(0.8);
 }
 
 /* Header */
@@ -259,14 +261,14 @@ body {
 }
 
 .btn-play {
-  background: linear-gradient(45deg, #27ae60, #2ecc71);
+  background: linear-gradient(45deg, #f1c40f, #f39c12);
   color: white;
-  box-shadow: 0 5px 15px rgba(39, 174, 96, 0.4);
+  box-shadow: 0 5px 15px rgba(243, 156, 18, 0.4);
 }
 
 .btn-play:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 25px rgba(39, 174, 96, 0.6);
+  box-shadow: 0 8px 25px rgba(243, 156, 18, 0.6);
 }
 
 .btn-install {
@@ -392,16 +394,13 @@ body {
 }
 
 /* Social Footer */
-.social-footer {
-  padding: 1rem 2rem;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(10px);
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.social-links {
+.social-sidebar {
+  position: absolute;
+  top: 50%;
+  right: 2rem;
+  transform: translateY(-50%);
   display: flex;
-  justify-content: center;
+  flex-direction: column;
   gap: 1rem;
 }
 
@@ -411,17 +410,23 @@ body {
   border-radius: 50%;
   width: 45px;
   height: 45px;
-  font-size: 1.3rem;
   cursor: pointer;
   transition: all 0.3s ease;
   backdrop-filter: blur(10px);
-  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .social-btn:hover {
   background: rgba(255, 255, 255, 0.3);
   transform: scale(1.1) rotate(5deg);
   box-shadow: 0 5px 15px rgba(255, 255, 255, 0.2);
+}
+
+.social-btn img {
+  width: 24px;
+  height: 24px;
 }
 
 /* Loading Screen */

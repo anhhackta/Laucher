@@ -63,35 +63,35 @@
   "social_links": [
     {
       "id": "home",
-      "icon": "🏠",
+      "icon": "src-tauri/social/home.png",
       "url": "https://yourgame.com",
       "tooltip": "Website",
       "active": true
     },
     {
       "id": "facebook",
-      "icon": "📘",
+      "icon": "src-tauri/social/facebook.png",
       "url": "https://facebook.com/yourgame",
       "tooltip": "Facebook",
       "active": true
     },
     {
       "id": "discord",
-      "icon": "💬",
+      "icon": "src-tauri/social/discord.png",
       "url": "https://discord.gg/yourgame",
       "tooltip": "Discord",
       "active": true
     },
     {
       "id": "email",
-      "icon": "📧",
+      "icon": "src-tauri/social/email.png",
       "url": "mailto:support@yourgame.com",
       "tooltip": "Email Support",
       "active": true
     },
     {
       "id": "repair",
-      "icon": "🔧",
+      "icon": "src-tauri/social/repair.png",
       "url": "#",
       "tooltip": "Repair Game Files",
       "active": true,

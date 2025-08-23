@@ -2,6 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { open } from '@tauri-apps/api/shell';
 import './App.css';
+import homeIcon from '../src-tauri/social/home.png';
+import facebookIcon from '../src-tauri/social/facebook.png';
+import discordIcon from '../src-tauri/social/discord.png';
+import emailIcon from '../src-tauri/social/email.png';
+import repairIcon from '../src-tauri/social/repair.png';
 
 interface GameInfo {
   id: string;
@@ -238,8 +243,12 @@ function App() {
     );
   }
 
+  const backgroundStyle = selectedGame
+    ? { backgroundImage: `url(${selectedGame.image_url})` }
+    : {};
+
   return (
-    <div className={`app ${currentTheme}`}>
+    <div className={`app ${currentTheme}`} style={backgroundStyle}>
       {/* Header with Settings */}
       <header className="header">
         <div className="logo">Game Launcher</div>
@@ -412,39 +421,46 @@ function App() {
         </div>
       </div>
 
-      {/* Social Footer */}
-      <footer className="social-footer">
-        <div className="social-links">
-          <button 
+      {/* Social Sidebar */}
+      <aside className="social-sidebar">
+        <button
+          className="social-btn"
+          onClick={() => open('https://yourgame.com')}
+          title="Home"
+        >
+          <img src={homeIcon} alt="Home" />
+        </button>
+        <button
+          className="social-btn"
+          onClick={() => open('https://facebook.com/anhhackta.official')}
+          title="Facebook"
+        >
+          <img src={facebookIcon} alt="Facebook" />
+        </button>
+        <button
+          className="social-btn"
+          onClick={() => open('https://discord.gg/your-server')}
+          title="Discord"
+        >
+          <img src={discordIcon} alt="Discord" />
+        </button>
+        <button
+          className="social-btn"
+          onClick={() => open('mailto:your-email@example.com')}
+          title="Email"
+        >
+          <img src={emailIcon} alt="Email" />
+        </button>
+        {selectedGame && (
+          <button
             className="social-btn"
-            onClick={() => open('https://discord.gg/your-server')}
-            title="Discord"
+            onClick={() => handleRepairGame(selectedGame)}
+            title="Repair"
           >
-            💬
+            <img src={repairIcon} alt="Repair" />
           </button>
-          <button 
-            className="social-btn"
-            onClick={() => open('https://x.com/LagAnime')}
-            title="Twitter/X"
-          >
-            🐦
-          </button>
-          <button 
-            className="social-btn"
-            onClick={() => open('https://facebook.com/anhhackta.official')}
-            title="Facebook"
-          >
-            📘
-          </button>
-          <button 
-            className="social-btn"
-            onClick={() => open('mailto:your-email@example.com')}
-            title="Email"
-          >
-            📧
-          </button>
-        </div>
-      </footer>
+        )}
+      </aside>
     </div>
   );
 }
