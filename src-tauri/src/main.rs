@@ -15,6 +15,7 @@ struct GameInfo {
     download_url: Option<String>,
     executable_path: Option<String>,
     image_url: String,
+    logo_url: Option<String>,
     background_id: String,
     description: String,
     file_size: Option<String>,
@@ -242,6 +243,7 @@ async fn get_games() -> Result<Vec<GameInfo>, String> {
             download_url: Some("https://your-username.github.io/your-game-launcher/games/stellar_quest_v2.2.3.zip".to_string()),
             executable_path: Some("StellarQuest.exe".to_string()),
             image_url: "https://files.catbox.moe/2d8fvz.png".to_string(),
+            logo_url: Some("https://lh3.googleusercontent.com/pw/AP1GczMLJwyjMDaF7xJ3VS2zGuKTDnzoEBZ57qgNT39c9_kthr_5POsfSnR0Wpacn9tz4CeYjciAuAIZPDO7N67wUswUC7cDpJTymmKlxH2ehuTHvwoUcyM=w2400".to_string()),
             background_id: "stellar_quest_bg".to_string(),
             description: "A space exploration game with stunning visuals and engaging gameplay.".to_string(),
             file_size: Some("1.2GB".to_string()),
@@ -258,6 +260,7 @@ async fn get_games() -> Result<Vec<GameInfo>, String> {
             download_url: None,
             executable_path: None,
             image_url: "https://files.catbox.moe/6f2nc5.png".to_string(),
+            logo_url: Some("https://lh3.googleusercontent.com/pw/AP1GczNZq-auYxUvVXyPKce-MVkITxLbwAkSv3IJLLwH7toRhEo_8oEHI4R0Vs9-lVluYdbCPegG0I2oIR_dSqRJXMkO5ibytMLneSvCxppwCus9boxvEqM=w2400".to_string()),
             background_id: "mystic_adventures_bg".to_string(),
             description: "A mysterious adventure game set in ancient ruins.".to_string(),
             file_size: None,
@@ -405,6 +408,38 @@ fn get_startup_status() -> Result<bool, String> {
     is_startup_with_windows()
 }
 
+#[tauri::command]
+async fn minimize_window(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app.get_window("main")
+        .ok_or("Window not found")?;
+    window.minimize().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn hide_window(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app.get_window("main")
+        .ok_or("Window not found")?;
+    window.hide().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn close_window(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app.get_window("main")
+        .ok_or("Window not found")?;
+    window.close().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn start_dragging(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app.get_window("main")
+        .ok_or("Window not found")?;
+    window.start_dragging().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> Result<(), std::io::Error> {
     if src.is_dir() {
         std::fs::create_dir_all(dst)?;
@@ -500,7 +535,11 @@ fn main() {
             repair_game,
             check_network_status,
             toggle_startup_with_windows,
-            get_startup_status
+            get_startup_status,
+            minimize_window,
+            hide_window,
+            close_window,
+            start_dragging
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

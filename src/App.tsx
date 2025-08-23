@@ -1,12 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { open } from '@tauri-apps/api/shell';
 import './App.css';
-import homeIcon from '../src-tauri/social/home.png';
-import facebookIcon from '../src-tauri/social/facebook.png';
-import discordIcon from '../src-tauri/social/discord.png';
-import emailIcon from '../src-tauri/social/email.png';
-import repairIcon from '../src-tauri/social/repair.png';
 
 interface GameInfo {
   id: string;
@@ -16,6 +11,7 @@ interface GameInfo {
   download_url?: string;
   executable_path?: string;
   image_url: string;
+  logo_url?: string;
   background_id: string;
   description: string;
   file_size?: string;
@@ -75,6 +71,7 @@ function App() {
   const [startupWithWindows, setStartupWithWindows] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadLauncher();
@@ -219,16 +216,95 @@ function App() {
     }
   };
 
+  const handleMinimize = async () => {
+    try {
+      if (minimizeToTray) {
+        // Minimize to tray
+        await invoke('hide_window');
+      } else {
+        // Regular minimize to taskbar
+        await invoke('minimize_window');
+      }
+    } catch (err) {
+      console.error('Minimize failed:', err);
+      // Fallback to regular minimize if tray operation fails
+      try {
+        await invoke('minimize_window');
+      } catch (fallbackErr) {
+        console.error('Fallback minimize also failed:', fallbackErr);
+      }
+    }
+  };
+
+  const handleClose = async () => {
+    try {
+      if (minimizeToTray) {
+        // Hide to tray instead of closing
+        await invoke('hide_window');
+      } else {
+        // Close the application
+        await invoke('close_window');
+      }
+    } catch (err) {
+      console.error('Close failed:', err);
+      // Fallback to regular close if tray operation fails
+      try {
+        await invoke('close_window');
+      } catch (fallbackErr) {
+        console.error('Fallback close also failed:', fallbackErr);
+      }
+    }
+  };
+
+  const handleHeaderMouseDown = async (e: React.MouseEvent) => {
+    // Only allow dragging from the header area, not from buttons
+    if (e.target === headerRef.current || (e.target as HTMLElement).closest('.logo')) {
+      try {
+        await invoke('start_dragging');
+      } catch (err) {
+        console.error('Start dragging failed:', err);
+      }
+    }
+  };
+
+  const handleHeaderMouseEnter = () => {
+    if (headerRef.current) {
+      headerRef.current.style.cursor = 'grab';
+    }
+  };
+
+  const handleHeaderMouseLeave = () => {
+    if (headerRef.current) {
+      headerRef.current.style.cursor = 'default';
+    }
+  };
+
   const handleGameSelect = (game: GameInfo) => {
     setSelectedGame(game);
     setCurrentBackground(game.background_id);
+    
+    // Apply game-specific theme colors
+    const gamePanel = document.querySelector('.game-panel');
+    if (gamePanel) {
+      // Remove existing theme classes
+      gamePanel.classList.remove('game-theme-1', 'game-theme-2', 'game-theme-3');
+      
+      // Add theme class based on game ID or name
+      if (game.id === 'game1' || game.name.toLowerCase().includes('anime')) {
+        gamePanel.classList.add('game-theme-1');
+      } else if (game.id === 'game2' || game.name.toLowerCase().includes('action')) {
+        gamePanel.classList.add('game-theme-2');
+      } else {
+        gamePanel.classList.add('game-theme-3');
+      }
+    }
   };
 
   if (isLoading) {
     return (
       <div className="loading-screen">
         <div className="loading-spinner"></div>
-        <p>Loading Game Launcher...</p>
+        <p>Loading AntChill Launcher by BaHoang...</p>
       </div>
     );
   }
@@ -249,62 +325,91 @@ function App() {
 
   return (
     <div className={`app ${currentTheme}`} style={backgroundStyle}>
+      {/* Tray Mode Indicator */}
+      {minimizeToTray}
+      
       {/* Header with Settings */}
-      <header className="header">
-        <div className="logo">Game Launcher</div>
-        <div className="header-controls">
-          <button 
-            className="settings-btn"
-            onClick={() => setShowSettings(!showSettings)}
-            title="Settings"
-          >
-            ⚙️
-          </button>
-        </div>
-      </header>
+       <header 
+         className="header" 
+         ref={headerRef}
+         onMouseDown={handleHeaderMouseDown}
+         onMouseEnter={handleHeaderMouseEnter}
+         onMouseLeave={handleHeaderMouseLeave}
+       >
+         <div className="logo">
+           <img src="/logo.png" alt="AntChill Logo" className="logo-img" />
+           <span>AntChill Launcher</span>
+         </div>
+         <div className="header-controls">
+           <button 
+             className="header-btn settings-btn"
+             onClick={() => setShowSettings(!showSettings)}
+             title="Settings"
+           >
+             <img src="/social/settings.png" alt="Settings" />
+           </button>
+           <button 
+             className={`header-btn minimize-btn ${minimizeToTray ? 'active' : ''}`}
+             onClick={handleMinimize}
+             title={minimizeToTray ? "Minimize to Tray" : "Minimize to Taskbar"}
+           >
+             <img src="/social/minimize.png" alt="Minimize" />
+           </button>
+           <button 
+             className="header-btn close-btn"
+             onClick={handleClose}
+             title={minimizeToTray ? "Hide to Tray" : "Close"}
+           >
+             <img src="/social/close.png" alt="Close" />
+           </button>
+         </div>
+       </header>
 
-      {/* Settings Panel */}
-      {showSettings && (
-        <div className="settings-panel">
-          <h3>Settings</h3>
-          
-          <div className="setting-item">
-            <label>Theme:</label>
-            <select 
-              value={currentTheme} 
-              onChange={(e) => setCurrentTheme(e.target.value as 'light' | 'dark')}
-            >
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-            </select>
-          </div>
+             {/* Settings Panel */}
+       {showSettings && (
+         <>
+           <div className="settings-overlay" onClick={() => setShowSettings(false)} />
+           <div className="settings-panel">
+             <h3>Settings</h3>
+             
+             <div className="setting-item">
+               <label>Theme:</label>
+               <select 
+                 value={currentTheme} 
+                 onChange={(e) => setCurrentTheme(e.target.value as 'light' | 'dark')}
+               >
+                 <option value="light">Light</option>
+                 <option value="dark">Dark</option>
+               </select>
+             </div>
 
-          <div className="setting-item">
-            <label>Startup with Windows:</label>
-            <input
-              type="checkbox"
-              checked={startupWithWindows}
-              onChange={(e) => toggleStartupWithWindows(e.target.checked)}
-            />
-          </div>
+             <div className="setting-item">
+               <label>Startup with Windows:</label>
+               <input
+                 type="checkbox"
+                 checked={startupWithWindows}
+                 onChange={(e) => toggleStartupWithWindows(e.target.checked)}
+               />
+             </div>
 
-          <div className="setting-item">
-            <label>Minimize to Tray:</label>
-            <input
-              type="checkbox"
-              checked={minimizeToTray}
-              onChange={(e) => setMinimizeToTray(e.target.checked)}
-            />
-          </div>
+             <div className="setting-item">
+               <label>Minimize to Tray:</label>
+               <input
+                 type="checkbox"
+                 checked={minimizeToTray}
+                 onChange={(e) => setMinimizeToTray(e.target.checked)}
+               />
+             </div>
 
-          <button 
-            className="close-settings"
-            onClick={() => setShowSettings(false)}
-          >
-            Close
-          </button>
-        </div>
-      )}
+             <button 
+               className="close-settings"
+               onClick={() => setShowSettings(false)}
+             >
+               Close
+             </button>
+           </div>
+         </>
+       )}
 
       {/* Main Content */}
       <div className="main-content">
@@ -317,11 +422,21 @@ function App() {
               className={`game-item ${selectedGame?.id === game.id ? 'selected' : ''}`}
               onClick={() => handleGameSelect(game)}
             >
-              <img 
-                src={game.image_url} 
-                alt={game.name}
-                className="game-icon"
-              />
+              <div className="game-logo-container">
+                {game.logo_url ? (
+                  <img 
+                    src={game.logo_url} 
+                    alt={`${game.name} Logo`}
+                    className="game-logo"
+                  />
+                ) : (
+                  <img 
+                    src={game.image_url} 
+                    alt={game.name}
+                    className="game-icon"
+                  />
+                )}
+              </div>
               <div className="game-info">
                 <h4>{game.name}</h4>
                 <p>v{game.version}</p>
@@ -414,8 +529,8 @@ function App() {
             </>
           ) : (
             <div className="welcome-screen">
-              <h2>Welcome to Game Launcher</h2>
-              <p>Select a game from the sidebar to get started!</p>
+              <h2>AntChill</h2>
+              <p>Game Launcher by BaHoang </p>
             </div>
           )}
         </div>
@@ -428,28 +543,28 @@ function App() {
           onClick={() => open('https://yourgame.com')}
           title="Home"
         >
-          <img src={homeIcon} alt="Home" />
+                        <img src="/social/home.png" alt="Home" />
         </button>
         <button
           className="social-btn"
           onClick={() => open('https://facebook.com/anhhackta.official')}
           title="Facebook"
         >
-          <img src={facebookIcon} alt="Facebook" />
+                        <img src="/social/facebook.png" alt="Facebook" />
         </button>
         <button
           className="social-btn"
           onClick={() => open('https://discord.gg/your-server')}
           title="Discord"
         >
-          <img src={discordIcon} alt="Discord" />
+                        <img src="/social/discord.png" alt="Discord" />
         </button>
         <button
           className="social-btn"
           onClick={() => open('mailto:your-email@example.com')}
           title="Email"
         >
-          <img src={emailIcon} alt="Email" />
+                        <img src="/social/email.png" alt="Email" />
         </button>
         {selectedGame && (
           <button
@@ -457,7 +572,7 @@ function App() {
             onClick={() => handleRepairGame(selectedGame)}
             title="Repair"
           >
-            <img src={repairIcon} alt="Repair" />
+                          <img src="/social/repair.png" alt="Repair" />
           </button>
         )}
       </aside>
