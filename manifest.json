@@ -1,0 +1,109 @@
+{
+  "manifest_version": "1.0",
+  "last_updated": "2025-01-20T10:00:00Z",
+  
+  "launcher_config": {
+    "current_version": "1.0.0",
+    "update_url": "https://your-username.github.io/your-game-launcher/launcher/GameLauncher_v1.0.1.exe",
+    "changelog": "Initial release of Game Launcher",
+    "auto_check_updates": true,
+    "check_interval_hours": 24
+  },
+
+  "backgrounds": {
+    "stellar_quest": {
+      "id": "stellar_quest_bg",
+      "name": "Stellar Quest Background",
+      "image_url": "https://files.catbox.moe/2d8fvz.png",
+      "active": true
+    },
+    "mystic_adventures": {
+      "id": "mystic_adventures_bg", 
+      "name": "Mystic Adventures Background",
+      "image_url": "https://files.catbox.moe/6f2nc5.png",
+      "active": true
+    }
+  },
+
+  "games": [
+    {
+      "id": "stellar_quest",
+      "name": "Stellar Quest",
+      "version": "2.2.3",
+      "status": "available",
+      "download_url": "https://your-username.github.io/your-game-launcher/games/stellar_quest_v2.2.3.zip",
+      "executable_path": "StellarQuest.exe",
+      "image_url": "https://files.catbox.moe/2d8fvz.png",
+      "background_id": "stellar_quest_bg",
+      "description": "A space exploration game with stunning visuals and engaging gameplay.",
+      "file_size": "1.2GB",
+      "release_date": "2023-01-01",
+      "changelog": "Initial release with space exploration mechanics.",
+      "is_coming_soon": false,
+      "repair_enabled": true
+    },
+    {
+      "id": "mystic_adventures",
+      "name": "Mystic Adventures", 
+      "version": "1.0.0",
+      "status": "coming_soon",
+      "download_url": null,
+      "executable_path": null,
+      "image_url": "https://files.catbox.moe/6f2nc5.png",
+      "background_id": "mystic_adventures_bg",
+      "description": "A mysterious adventure game set in ancient ruins.",
+      "file_size": null,
+      "release_date": null,
+      "changelog": null,
+      "is_coming_soon": true,
+      "repair_enabled": false
+    }
+  ],
+
+  "social_links": [
+    {
+      "id": "home",
+      "icon": "🏠",
+      "url": "https://yourgame.com",
+      "tooltip": "Website",
+      "active": true
+    },
+    {
+      "id": "facebook",
+      "icon": "📘",
+      "url": "https://facebook.com/yourgame",
+      "tooltip": "Facebook",
+      "active": true
+    },
+    {
+      "id": "discord",
+      "icon": "💬",
+      "url": "https://discord.gg/yourgame",
+      "tooltip": "Discord",
+      "active": true
+    },
+    {
+      "id": "email",
+      "icon": "📧",
+      "url": "mailto:support@yourgame.com",
+      "tooltip": "Email Support",
+      "active": true
+    },
+    {
+      "id": "repair",
+      "icon": "🔧",
+      "url": "#",
+      "tooltip": "Repair Game Files",
+      "active": true,
+      "action": "repair_game"
+    }
+  ],
+
+  "settings": {
+    "startup_with_windows": true,
+    "minimize_to_tray": true,
+    "auto_check_updates": true,
+    "download_path": "games",
+    "max_backups": 3
+  }
+}
