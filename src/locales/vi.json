@@ -1,0 +1,52 @@
+{
+  "launcher": {
+    "title": "AntChill Launcher",
+    "loading": "Đang tải AntChill Launcher bởi BaHoang...",
+    "welcome": {
+      "title": "AntChill"
+    },
+    "games": {
+      "title": "Games",
+      "available": "Có sẵn",
+      "coming_soon": "Sắp ra mắt",
+      "play": "▶️ Chơi",
+      "install": "📥 Cài đặt",
+      "downloading": "⏳ Đang tải...",
+      "check_updates": "🔄 Kiểm tra cập nhật",
+      "repair": "🔧 Sửa chữa",
+      "coming_soon_btn": "🕐 Sắp ra mắt"
+    },
+    "settings": {
+      "title": "Cài đặt",
+      "general": "Chung",
+      "game": "Game",
+      "version": "Phiên bản: 1.0.0",
+      "language": "Ngôn ngữ",
+      "close_window": "Đóng cửa sổ",
+      "startup_behavior": "Hành vi khởi động",
+      "theme": "Giao diện",
+      "minimize_to_tray": "Thu nhỏ vào khay hệ thống",
+      "exit_launcher": "Thoát Launcher",
+      "run_on_startup": "Chạy AntChill Launcher khi khởi động",
+      "theme_light": "Sáng",
+      "theme_dark": "Tối",
+      "reload_launcher": "🔄 Tải lại Launcher",
+      "close": "Đóng",
+      "game_installation_directory": "Thư mục cài đặt Game",
+      "auto_search_info": "Launcher tự động tìm kiếm game trong:",
+      "full_path": "Đường dẫn đầy đủ:",
+      "example": "Ví dụ:",
+      "open_folder": "Mở thư mục"
+    },
+    "status": {
+      "offline_mode": "Chế độ Offline",
+      "tray_mode": "Chế độ Khay",
+      "last_check": "Kiểm tra cuối:"
+    },
+    "errors": {
+      "connection_error": "Lỗi kết nối",
+      "retry_connection": "🔄 Thử kết nối lại"
+    }
+  }
+}
+

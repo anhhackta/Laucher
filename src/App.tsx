@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { open } from '@tauri-apps/api/shell';
+import { useLanguage } from './hooks/useLanguage';
 import './App.css';
 
 interface GameInfo {
@@ -58,6 +59,7 @@ interface NetworkStatus {
 }
 
 function App() {
+  const { t, currentLanguage, changeLanguage } = useLanguage();
   const [games, setGames] = useState<GameInfo[]>([]);
   const [selectedGame, setSelectedGame] = useState<GameInfo | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
@@ -71,11 +73,98 @@ function App() {
   const [startupWithWindows, setStartupWithWindows] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
+  const [lastOnlineCheck, setLastOnlineCheck] = useState<Date>(new Date());
+  const [activeSettingsTab, setActiveSettingsTab] = useState<'general' | 'game'>('general');
+  const [gameBaseDirectory, setGameBaseDirectory] = useState('C:\\Games\\AntChillGame');
   const headerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadLauncher();
+    
+    // Tắt F12 và Developer Tools
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Tắt F12
+      if (e.key === 'F12') {
+        e.preventDefault();
+        return false;
+      }
+      
+      // Tắt Ctrl+Shift+I (Developer Tools)
+      if (e.ctrlKey && e.shiftKey && e.key === 'I') {
+        e.preventDefault();
+        return false;
+      }
+      
+      // Tắt Ctrl+Shift+C (Inspect Element)
+      if (e.ctrlKey && e.shiftKey && e.key === 'C') {
+        e.preventDefault();
+        return false;
+      }
+      
+      // Tắt Ctrl+U (View Source)
+      if (e.ctrlKey && e.key === 'u') {
+        e.preventDefault();
+        return false;
+      }
+      
+      // Tắt Ctrl+Shift+J (Console)
+      if (e.ctrlKey && e.shiftKey && e.key === 'J') {
+        e.preventDefault();
+        return false;
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    
+    // Tắt right-click context menu
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      return false;
+    };
+    
+    document.addEventListener('contextmenu', handleContextMenu);
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('contextmenu', handleContextMenu);
+    };
   }, []);
+
+  // Kiểm tra kết nối định kỳ
+  useEffect(() => {
+    const checkConnectionInterval = setInterval(async () => {
+      try {
+        const result = await invoke<NetworkStatus>('check_network_status');
+        setNetworkStatus(result);
+        
+        if (result.is_online && isOfflineMode) {
+          // Chuyển từ offline về online
+          setIsOfflineMode(false);
+          setError(null);
+          // Reload games và social links khi có kết nối trở lại
+          const gamesResult = await invoke<GameInfo[]>('get_games');
+          setGames(gamesResult);
+          
+          const socialLinksResult = await invoke<SocialLink[]>('get_social_links');
+          setSocialLinks(socialLinksResult);
+        } else if (!result.is_online && !isOfflineMode) {
+          // Chuyển sang offline mode
+          setIsOfflineMode(true);
+          setError(null); // Không hiện error khi offline
+        }
+        
+        setLastOnlineCheck(new Date());
+      } catch (err) {
+        console.error('Connection check failed:', err);
+        if (!isOfflineMode) {
+          setIsOfflineMode(true);
+        }
+      }
+    }, 30000); // Kiểm tra mỗi 30 giây
+
+    return () => clearInterval(checkConnectionInterval);
+  }, [isOfflineMode]);
 
   const loadLauncher = async () => {
     try {
@@ -86,14 +175,43 @@ function App() {
       setNetworkStatus(networkResult);
       
       if (!networkResult.is_online) {
-        setError('Lỗi mạng vui lòng kiểm tra lại.');
+        // Chuyển sang offline mode
+        setIsOfflineMode(true);
+        setError(null); // Không hiện error khi offline
+        
+        // Load offline games data
+        const offlineGames = await invoke<GameInfo[]>('get_offline_games');
+        setGames(offlineGames);
+        
+        // Load offline social links
+        const offlineSocialLinks = await invoke<SocialLink[]>('get_social_links');
+        setSocialLinks(offlineSocialLinks);
+        
+        if (offlineGames.length > 0) {
+          setCurrentBackground(offlineGames[0].background_id);
+        }
+        
         setIsLoading(false);
         return;
       }
 
-      // Load games
+      // Online mode - Load games normally
       const gamesResult = await invoke<GameInfo[]>('get_games');
-      setGames(gamesResult);
+      console.log('Games loaded from manifest:', gamesResult);
+      
+      // Scan local game directories to update game status
+      try {
+        const scannedGames = await invoke<GameInfo[]>('scan_local_games', { games: gamesResult });
+        console.log('Games after local scan:', scannedGames);
+        setGames(scannedGames);
+      } catch (scanError) {
+        console.error('Local scan failed, using manifest games:', scanError);
+        setGames(gamesResult);
+      }
+      
+      // Load social links from manifest
+      const socialLinksResult = await invoke<SocialLink[]>('get_social_links');
+      setSocialLinks(socialLinksResult);
       
       // Set default background
       if (gamesResult.length > 0) {
@@ -104,9 +222,27 @@ function App() {
       const startupResult = await invoke<boolean>('get_startup_status');
       setStartupWithWindows(startupResult);
 
+      setIsOfflineMode(false);
       setIsLoading(false);
     } catch (err) {
-      setError(err as string);
+      // Fallback to offline mode
+      setIsOfflineMode(true);
+      setError(null); // Không hiện error khi offline
+      
+      try {
+        const offlineGames = await invoke<GameInfo[]>('get_offline_games');
+        setGames(offlineGames);
+        
+        const offlineSocialLinks = await invoke<SocialLink[]>('get_social_links');
+        setSocialLinks(offlineSocialLinks);
+        
+        if (offlineGames.length > 0) {
+          setCurrentBackground(offlineGames[0].background_id);
+        }
+      } catch (offlineErr) {
+        console.error('Failed to load offline data:', offlineErr);
+      }
+      
       setIsLoading(false);
     }
   };
@@ -279,6 +415,76 @@ function App() {
     }
   };
 
+  const handleBrowseGameDirectory = async () => {
+    try {
+      const result = await invoke<string>('select_directory');
+      if (result) {
+        setGameBaseDirectory(result);
+      }
+    } catch (err) {
+      console.error('Failed to select directory:', err);
+    }
+  };
+
+  const handleChangeGamePath = async (game: GameInfo) => {
+    try {
+      const result = await invoke<string>('select_directory');
+      if (result) {
+        // Update game path logic here
+        console.log(`Changing path for ${game.name} to: ${result}`);
+      }
+    } catch (err) {
+      console.error('Failed to change game path:', err);
+    }
+  };
+
+  const handleLocateGame = async (game: GameInfo) => {
+    try {
+      const result = await invoke<string>('select_file', { 
+        title: `Select ${game.name} executable`,
+        filters: [{ name: 'Executable', extensions: ['exe'] }]
+      });
+      if (result) {
+        // Update game executable path logic here
+        console.log(`Located ${game.name} at: ${result}`);
+      }
+    } catch (err) {
+      console.error('Failed to locate game:', err);
+    }
+  };
+
+  const handleRescanGames = async () => {
+    try {
+      // Trigger automatic game scan
+      const updatedGames = await invoke<GameInfo[]>('scan_games');
+      setGames(updatedGames);
+      console.log('Games rescanned successfully');
+    } catch (err) {
+      console.error('Failed to rescan games:', err);
+    }
+  };
+
+  const handleOpenGameFolder = async (game: GameInfo) => {
+    if (game.executable_path) {
+      try {
+        // Extract directory path from executable path
+        const dirPath = game.executable_path.substring(0, game.executable_path.lastIndexOf('\\'));
+        await invoke('open_directory', { path: dirPath });
+      } catch (err) {
+        console.error('Failed to open game folder:', err);
+      }
+    }
+  };
+
+  const handleOpenGameDirectory = async () => {
+    try {
+      // Open the main AntChillGame directory
+      await invoke('open_directory', { path: 'AntChillGame' });
+    } catch (err) {
+      console.error('Failed to open game directory:', err);
+    }
+  };
+
   const handleGameSelect = (game: GameInfo) => {
     setSelectedGame(game);
     setCurrentBackground(game.background_id);
@@ -303,18 +509,35 @@ function App() {
   if (isLoading) {
     return (
       <div className="loading-screen">
+        <div className="loading-video-container">
+          <video 
+            className="loading-video" 
+            autoPlay 
+            muted 
+            loop
+            playsInline
+          >
+            <source src="/social/loading.mp4" type="video/mp4" />
+            Your browser does not support the video tag.
+          </video>
+        </div>
         <div className="loading-spinner"></div>
-        <p>Loading AntChill Launcher by BaHoang...</p>
+        <p>{t('launcher.loading')}</p>
       </div>
     );
   }
 
-  if (error) {
+  // Chỉ hiện error screen khi thực sự có lỗi và không phải offline mode
+  if (error && !isOfflineMode) {
     return (
       <div className="error-screen">
-        <h2>Connection Error</h2>
+        <h2>{t('launcher.errors.connection_error')}</h2>
         <p>{error}</p>
-        <button onClick={loadLauncher}>Retry</button>
+        <div className="error-actions">
+          <button onClick={loadLauncher} className="retry-btn">
+            {t('launcher.errors.retry_connection')}
+          </button>
+        </div>
       </div>
     );
   }
@@ -325,8 +548,22 @@ function App() {
 
   return (
     <div className={`app ${currentTheme}`} style={backgroundStyle}>
-      {/* Tray Mode Indicator */}
-      {minimizeToTray}
+      {/* Status Indicators */}
+      {minimizeToTray && (
+        <div className="tray-mode-indicator">
+          {t('launcher.status.tray_mode')}
+        </div>
+      )}
+      
+      {isOfflineMode && (
+        <div className="offline-mode-indicator">
+          <span className="offline-icon">📱</span>
+          {t('launcher.status.offline_mode')}
+          <span className="last-check">
+            {t('launcher.status.last_check')} {lastOnlineCheck.toLocaleTimeString()}
+          </span>
+        </div>
+      )}
       
       {/* Header with Settings */}
        <header 
@@ -336,9 +573,26 @@ function App() {
          onMouseEnter={handleHeaderMouseEnter}
          onMouseLeave={handleHeaderMouseLeave}
        >
-         <div className="logo">
-           <img src="/logo.png" alt="AntChill Logo" className="logo-img" />
-           <span>AntChill Launcher</span>
+         <div 
+           className="logo"
+           onClick={() => {
+             setSelectedGame(null);
+             setCurrentBackground('');
+           }}
+           style={{ cursor: 'pointer' }}
+         >
+           <img 
+             src="/logo.png" 
+             alt="AntChill Logo" 
+             className="logo-img" 
+             onClick={(e) => {
+               e.stopPropagation();
+               setSelectedGame(null);
+               setCurrentBackground('');
+             }}
+             style={{ cursor: 'pointer' }}
+           />
+           <span>{t('launcher.title')}</span>
          </div>
          <div className="header-controls">
            <button 
@@ -370,43 +624,195 @@ function App() {
          <>
            <div className="settings-overlay" onClick={() => setShowSettings(false)} />
            <div className="settings-panel">
-             <h3>Settings</h3>
-             
-             <div className="setting-item">
-               <label>Theme:</label>
-               <select 
-                 value={currentTheme} 
-                 onChange={(e) => setCurrentTheme(e.target.value as 'light' | 'dark')}
+             <div className="settings-header">
+               <h3>{t('launcher.settings.title')}</h3>
+               <button 
+                 className="close-settings-btn"
+                 onClick={() => setShowSettings(false)}
                >
-                 <option value="light">Light</option>
-                 <option value="dark">Dark</option>
-               </select>
+                 ✕
+               </button>
              </div>
+             
+             <div className="settings-content">
+               <div className="settings-sidebar">
+                 <div 
+                   className={`settings-tab ${activeSettingsTab === 'general' ? 'active' : ''}`}
+                   onClick={() => setActiveSettingsTab('general')}
+                 >
+                   {t('launcher.settings.general')}
+                 </div>
+                 <div 
+                   className={`settings-tab ${activeSettingsTab === 'game' ? 'active' : ''}`}
+                   onClick={() => setActiveSettingsTab('game')}
+                 >
+                   {t('launcher.settings.game')}
+                 </div>
+                 <div className="settings-version">
+                   {t('launcher.settings.version')}
+                 </div>
+               </div>
+               
+                                <div className="settings-main">
+                   {activeSettingsTab === 'general' && (
+                     <>
+                       <div className="settings-section">
+                         <h4>{t('launcher.settings.language')}</h4>
+                         <div className="radio-group horizontal">
+                           <label className="radio-option">
+                             <input
+                               type="radio"
+                               name="language"
+                               value="vi"
+                               checked={currentLanguage === 'vi'}
+                               onChange={(e) => changeLanguage(e.target.value as 'en' | 'vi')}
+                             />
+                             <span className="radio-custom"></span>
+                             <span className="radio-label">Tiếng Việt</span>
+                           </label>
+                           <label className="radio-option">
+                             <input
+                               type="radio"
+                               name="language"
+                               value="en"
+                               checked={currentLanguage === 'en'}
+                               onChange={(e) => changeLanguage(e.target.value as 'en' | 'vi')}
+                             />
+                             <span className="radio-custom"></span>
+                             <span className="radio-label">English</span>
+                           </label>
+                         </div>
+                       </div>
 
-             <div className="setting-item">
-               <label>Startup with Windows:</label>
-               <input
-                 type="checkbox"
-                 checked={startupWithWindows}
-                 onChange={(e) => toggleStartupWithWindows(e.target.checked)}
-               />
+                       <div className="settings-section">
+                         <h4>{t('launcher.settings.close_window')}</h4>
+                         <div className="radio-group vertical">
+                           <label className="radio-option">
+                             <input
+                               type="radio"
+                               name="closeBehavior"
+                               value="minimize"
+                               checked={minimizeToTray}
+                               onChange={(e) => setMinimizeToTray(e.target.checked)}
+                             />
+                             <span className="radio-custom"></span>
+                             <span className="radio-label">{t('launcher.settings.minimize_to_tray')}</span>
+                           </label>
+                           <label className="radio-option">
+                             <input
+                               type="radio"
+                               name="closeBehavior"
+                               value="exit"
+                               checked={!minimizeToTray}
+                               onChange={(e) => setMinimizeToTray(!e.target.checked)}
+                             />
+                             <span className="radio-custom"></span>
+                             <span className="radio-label">{t('launcher.settings.exit_launcher')}</span>
+                           </label>
+                         </div>
+                       </div>
+
+                       <div className="settings-section">
+                         <h4>{t('launcher.settings.startup_behavior')}</h4>
+                         <div className="toggle-option">
+                           <span>{t('launcher.settings.run_on_startup')}</span>
+                           <label className="toggle-switch">
+                             <input
+                               type="checkbox"
+                               checked={startupWithWindows}
+                               onChange={(e) => toggleStartupWithWindows(e.target.checked)}
+                             />
+                             <span className="toggle-slider"></span>
+                           </label>
+                         </div>
+                       </div>
+
+                       <div className="settings-section">
+                         <h4>{t('launcher.settings.theme')}</h4>
+                         <div className="radio-group horizontal">
+                           <label className="radio-option">
+                             <input
+                               type="radio"
+                               name="theme"
+                               value="light"
+                               checked={currentTheme === 'light'}
+                               onChange={(e) => setCurrentTheme(e.target.value as 'light' | 'dark')}
+                             />
+                             <span className="radio-custom"></span>
+                             <span className="radio-label">{t('launcher.settings.theme_light')}</span>
+                           </label>
+                           <label className="radio-option">
+                             <input
+                               type="radio"
+                               name="theme"
+                               value="dark"
+                               checked={currentTheme === 'dark'}
+                               onChange={(e) => setCurrentTheme(e.target.value as 'light' | 'dark')}
+                             />
+                             <span className="radio-custom"></span>
+                             <span className="radio-label">{t('launcher.settings.theme_dark')}</span>
+                           </label>
+                         </div>
+                       </div>
+
+                       <div className="settings-actions">
+                         <button 
+                           className="reload-launcher-btn"
+                           onClick={loadLauncher}
+                           title="Reload launcher and refresh all data"
+                         >
+                           {t('launcher.settings.reload_launcher')}
+                         </button>
+                         <button 
+                           className="rescan-games-btn"
+                           onClick={async () => {
+                             try {
+                               const scannedGames = await invoke<GameInfo[]>('scan_local_games', { games });
+                               console.log('Manual rescan result:', scannedGames);
+                               setGames(scannedGames);
+                             } catch (err) {
+                               console.error('Manual rescan failed:', err);
+                             }
+                           }}
+                           title="Rescan local game directories"
+                         >
+                           🔍 Rescan Games
+                         </button>
+                       </div>
+                     </>
+                   )}
+
+                                       {activeSettingsTab === 'game' && (
+                      <>
+                        <div className="settings-section">
+                          <h4>{t('launcher.settings.game_installation_directory')}</h4>
+                          <div className="game-directory-info">
+                            <p>{t('launcher.settings.auto_search_info')} <code>AntChillGame/</code></p>
+                            <p>{t('launcher.settings.full_path')} <code>Ổ đĩa/Folder Launcher/AntChillGame/</code></p>
+                            <p>{t('launcher.settings.example')} <code>AntChillGame/Brato.io.v0.01/</code></p>
+                          </div>
+                          
+                          <div className="game-directory-action">
+                            <div className="directory-info">
+                              <span className="directory-path">AntChillGame</span>
+                              <button 
+                                className="open-directory-btn"
+                                onClick={() => handleOpenGameDirectory()}
+                              >
+                                {t('launcher.settings.open_folder')}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* Spacer để giữ kích thước tab bằng với General */}
+                        <div className="settings-section">
+                          <div className="settings-spacer"></div>
+                        </div>
+                      </>
+                    )}
+                 </div>
              </div>
-
-             <div className="setting-item">
-               <label>Minimize to Tray:</label>
-               <input
-                 type="checkbox"
-                 checked={minimizeToTray}
-                 onChange={(e) => setMinimizeToTray(e.target.checked)}
-               />
-             </div>
-
-             <button 
-               className="close-settings"
-               onClick={() => setShowSettings(false)}
-             >
-               Close
-             </button>
            </div>
          </>
        )}
@@ -415,7 +821,7 @@ function App() {
       <div className="main-content">
         {/* Game Sidebar */}
         <div className="game-sidebar">
-          <h3>Games</h3>
+          <h3>{t('launcher.games.title')}</h3>
           {games.map((game) => (
             <div
               key={game.id}
@@ -440,9 +846,9 @@ function App() {
               <div className="game-info">
                 <h4>{game.name}</h4>
                 <p>v{game.version}</p>
-                <span className={`status ${game.status}`}>
-                  {game.status === 'available' ? 'Available' : 'Coming Soon'}
-                </span>
+                                 <span className={`status ${game.status}`}>
+                   {game.status === 'available' ? t('launcher.games.available') : t('launcher.games.coming_soon')}
+                 </span>
               </div>
             </div>
           ))}
@@ -455,45 +861,47 @@ function App() {
               <div className="game-header">
                 <h2>{selectedGame.name}</h2>
                 <div className="game-actions">
-                  {selectedGame.status === 'available' ? (
+                  {selectedGame.status === 'coming_soon' ? (
+                    <button className="btn-coming-soon" disabled>
+                      {t('launcher.games.coming_soon_btn')}
+                    </button>
+                  ) : (
                     <>
                       {selectedGame.executable_path ? (
-                        <button 
-                          className="btn-play"
-                          onClick={() => handleLaunchGame(selectedGame)}
-                        >
-                          ▶️ Play
-                        </button>
+                        <>
+                          <button 
+                            className="btn-play"
+                            onClick={() => handleLaunchGame(selectedGame)}
+                          >
+                            {t('launcher.games.play')}
+                          </button>
+                          
+                          <button 
+                            className="btn-update"
+                            onClick={() => handleCheckUpdates(selectedGame)}
+                          >
+                            {t('launcher.games.check_updates')}
+                          </button>
+                          
+                          {selectedGame.repair_enabled && (
+                            <button 
+                              className="btn-repair"
+                              onClick={() => handleRepairGame(selectedGame)}
+                            >
+                              {t('launcher.games.repair')}
+                            </button>
+                          )}
+                        </>
                       ) : (
                         <button 
                           className="btn-install"
                           onClick={() => handleDownloadGame(selectedGame)}
                           disabled={downloading === selectedGame.id}
                         >
-                          {downloading === selectedGame.id ? '⏳ Downloading...' : '📥 Install'}
-                        </button>
-                      )}
-                      
-                      <button 
-                        className="btn-update"
-                        onClick={() => handleCheckUpdates(selectedGame)}
-                      >
-                        🔄 Check Updates
-                      </button>
-                      
-                      {selectedGame.repair_enabled && (
-                        <button 
-                          className="btn-repair"
-                          onClick={() => handleRepairGame(selectedGame)}
-                        >
-                          🔧 Repair
+                          {downloading === selectedGame.id ? t('launcher.games.downloading') : t('launcher.games.install')}
                         </button>
                       )}
                     </>
-                  ) : (
-                    <button className="btn-coming-soon" disabled>
-                      🕐 Coming Soon
-                    </button>
                   )}
                 </div>
               </div>
@@ -529,8 +937,7 @@ function App() {
             </>
           ) : (
             <div className="welcome-screen">
-              <h2>AntChill</h2>
-              <p>Game Launcher by BaHoang </p>
+              <h2 className="welcome-title">{t('launcher.welcome.title')}</h2>
             </div>
           )}
         </div>
@@ -540,39 +947,39 @@ function App() {
       <aside className="social-sidebar">
         <button
           className="social-btn"
-          onClick={() => open('https://yourgame.com')}
-          title="Home"
+          onClick={() => open('https://anhhackta.github.io')}
+          title="Website"
         >
-                        <img src="/social/home.png" alt="Home" />
+          <img src="/social/home.png" alt="Home" />
         </button>
         <button
           className="social-btn"
           onClick={() => open('https://facebook.com/anhhackta.official')}
           title="Facebook"
         >
-                        <img src="/social/facebook.png" alt="Facebook" />
+          <img src="/social/facebook.png" alt="Facebook" />
         </button>
         <button
           className="social-btn"
-          onClick={() => open('https://discord.gg/your-server')}
+          onClick={() => open('https://discord.gg/3J2nemTtDq')}
           title="Discord"
         >
-                        <img src="/social/discord.png" alt="Discord" />
+          <img src="/social/discord.png" alt="Discord" />
         </button>
         <button
           className="social-btn"
-          onClick={() => open('mailto:your-email@example.com')}
-          title="Email"
+          onClick={() => open('mailto:bahoangcran@gmail.com')}
+          title="Email Support"
         >
-                        <img src="/social/email.png" alt="Email" />
+          <img src="/social/email.png" alt="Email" />
         </button>
         {selectedGame && (
           <button
             className="social-btn"
             onClick={() => handleRepairGame(selectedGame)}
-            title="Repair"
+            title="Repair Game Files"
           >
-                          <img src="/social/repair.png" alt="Repair" />
+            <img src="/social/repair.png" alt="Repair" />
           </button>
         )}
       </aside>

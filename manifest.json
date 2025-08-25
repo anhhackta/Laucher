@@ -4,22 +4,22 @@
   
   "launcher_config": {
     "current_version": "1.0.0",
-    "update_url": "https://your-username.github.io/your-game-launcher/launcher/GameLauncher_v1.0.1.exe",
+    "update_url": "https://pub-72a5a57231ae489cb74409bdc120cb93.r2.dev/launcher/GameLauncher_v1.0.1.exe",
     "changelog": "Initial release of Game Launcher",
     "auto_check_updates": true,
     "check_interval_hours": 24
   },
 
   "backgrounds": {
-    "stellar_quest": {
-      "id": "stellar_quest_bg",
-      "name": "Stellar Quest Background",
+    "brato_io_bg": {
+      "id": "brato_io_bg",
+      "name": "Brato.io Background",
       "image_url": "https://files.catbox.moe/2d8fvz.png",
       "active": true
     },
-    "mystic_adventures": {
-      "id": "mystic_adventures_bg", 
-      "name": "Mystic Adventures Background",
+    "antknow_bg": {
+      "id": "antknow_bg", 
+      "name": "AntKnow Background",
       "image_url": "https://files.catbox.moe/6f2nc5.png",
       "active": true
     }
@@ -27,32 +27,32 @@
 
   "games": [
     {
-      "id": "stellar_quest",
-      "name": "Stellar Quest",
-      "version": "2.2.3",
+      "id": "brato_io",
+      "name": "Brato.io",
+      "version": "0.01",
       "status": "available",
-      "download_url": "https://your-username.github.io/your-game-launcher/games/stellar_quest_v2.2.3.zip",
-      "executable_path": "StellarQuest.exe",
+      "download_url": "https://pub-72a5a57231ae489cb74409bdc120cb93.r2.dev/games/brato_io_v0.01.zip",
+      "executable_path": null,
       "image_url": "https://files.catbox.moe/2d8fvz.png",
       "logo_url": "https://lh3.googleusercontent.com/pw/AP1GczMLJwyjMDaF7xJ3VS2zGuKTDnzoEBZ57qgNT39c9_kthr_5POsfSnR0Wpacn9tz4CeYjciAuAIZPDO7N67wUswUC7cDpJTymmKlxH2ehuTHvwoUcyM=w2400",
-      "background_id": "stellar_quest_bg",
+      "background_id": "brato_io_bg",
       "description": "A space exploration game with stunning visuals and engaging gameplay.",
-      "file_size": "1.2GB",
+      "file_size": "100 MB",
       "release_date": "2023-01-01",
       "changelog": "Initial release with space exploration mechanics.",
       "is_coming_soon": false,
       "repair_enabled": true
     },
     {
-      "id": "mystic_adventures",
-      "name": "Mystic Adventures", 
-      "version": "1.0.0",
+      "id": "antknow",
+      "name": "AntKnow", 
+      "version": "1.0",
       "status": "coming_soon",
       "download_url": null,
       "executable_path": null,
       "image_url": "https://files.catbox.moe/6f2nc5.png",
       "logo_url": "https://lh3.googleusercontent.com/pw/AP1GczNZq-auYxUvVXyPKce-MVkITxLbwAkSv3IJLLwH7toRhEo_8oEHI4R0Vs9-lVluYdbCPegG0I2oIR_dSqRJXMkO5ibytMLneSvCxppwCus9boxvEqM=w2400",
-      "background_id": "mystic_adventures_bg",
+      "background_id": "antknow_bg",
       "description": "A mysterious adventure game set in ancient ruins.",
       "file_size": null,
       "release_date": null,
@@ -66,28 +66,28 @@
     {
       "id": "home",
       "icon": "src-tauri/social/home.png",
-      "url": "https://yourgame.com",
+      "url": "https://anhhackta.github.io",
       "tooltip": "Website",
       "active": true
     },
     {
       "id": "facebook",
       "icon": "src-tauri/social/facebook.png",
-      "url": "https://facebook.com/yourgame",
+      "url": "https://facebook.com/anhhackta.official",
       "tooltip": "Facebook",
       "active": true
     },
     {
       "id": "discord",
       "icon": "src-tauri/social/discord.png",
-      "url": "https://discord.gg/yourgame",
+      "url": "https://discord.gg/3J2nemTtDq",
       "tooltip": "Discord",
       "active": true
     },
     {
       "id": "email",
       "icon": "src-tauri/social/email.png",
-      "url": "mailto:support@yourgame.com",
+      "url": "mailto:bahoangcran@gmail.com",
       "tooltip": "Email Support",
       "active": true
     },
