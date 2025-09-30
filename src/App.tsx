@@ -108,7 +108,7 @@ function App() {
   const [currentBackground, setCurrentBackground] = useState<string>('');
   const [networkStatus, setNetworkStatus] = useState<NetworkStatus>({ is_online: true, message: '' });
   const [startupWithWindows, setStartupWithWindows] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
   const [lastOnlineCheck, setLastOnlineCheck] = useState<Date>(new Date());
@@ -148,6 +148,7 @@ function App() {
   }, [selectedGame]);
 
   useEffect(() => {
+    console.log('App mounted, calling loadLauncher...');
     loadLauncher();
 
     // Tắt F12 và Developer Tools
@@ -302,7 +303,8 @@ function App() {
 
   const loadLauncher = async () => {
     try {
-      setIsLoading(true);
+      console.log('loadLauncher: Starting...');
+      setLoading(true);
       
       // Check network status
       const networkResult = await invoke<NetworkStatus>('check_network_status');
@@ -332,7 +334,8 @@ function App() {
           setCurrentBackground(offlineGames[0].background_id);
         }
 
-        setIsLoading(false);
+        console.log('loadLauncher: Offline mode completed, setting loading to false');
+        setLoading(false);
         return;
       }
 
@@ -371,7 +374,8 @@ function App() {
       setStartupWithWindows(startupResult);
 
       setIsOfflineMode(false);
-      setIsLoading(false);
+      console.log('loadLauncher: Online mode completed, setting loading to false');
+      setLoading(false);
     } catch (err) {
       // Fallback to offline mode
       setIsOfflineMode(true);
@@ -391,7 +395,8 @@ function App() {
         console.error('Failed to load offline data:', offlineErr);
       }
       
-      setIsLoading(false);
+      console.log('loadLauncher: Error fallback completed, setting loading to false');
+      setLoading(false);
     }
   };
 
@@ -731,8 +736,8 @@ function App() {
         }
 
         const preferred =
-          game.download_urls.find((url) => url.primary)?.name ??
-          game.download_urls[0]?.name;
+          game.download_urls!.find((url) => url.primary)?.name ??
+          game.download_urls![0]?.name;
 
         if (!preferred) {
           return previous;
@@ -803,7 +808,9 @@ function App() {
     return `${normalizedBase}${separator}${selectedGame.id}.v${selectedGame.version}`;
   };
 
-  if (isLoading) {
+  console.log('App render: loading =', loading, 'games.length =', games.length, 'error =', error, 'isOfflineMode =', isOfflineMode);
+  
+  if (loading) {
     return (
       <div className="loading-screen">
         <div className="loading-video-container">
@@ -870,8 +877,8 @@ function App() {
       }
 
       const preferred =
-        selectedGame.download_urls.find((url) => url.primary)?.name ??
-        selectedGame.download_urls[0]?.name;
+        selectedGame.download_urls!.find((url) => url.primary)?.name ??
+        selectedGame.download_urls![0]?.name;
 
       if (!preferred) {
         return previous;
@@ -916,8 +923,8 @@ function App() {
 
   const selectedServerName = selectedGame?.download_urls && selectedGame.download_urls.length > 0
     ? downloadServerSelection[selectedGame.id] ??
-      selectedGame.download_urls.find((url) => url.primary)?.name ??
-      selectedGame.download_urls[0]?.name
+      selectedGame.download_urls!.find((url) => url.primary)?.name ??
+      selectedGame.download_urls![0]?.name
     : undefined;
 
   return (
