@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 use std::fs;
+use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{CustomMenuItem, SystemTray, SystemTrayMenu, SystemTrayEvent, Manager, AppHandle};
 use serde::{Deserialize, Serialize};
@@ -9,12 +10,22 @@ use winreg::enums::*;
 use winreg::RegKey;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+struct DownloadUrl {
+  name: String,
+  url: String,
+  r#type: String,
+  size: String,
+  primary: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 struct GameInfo {
   id: String,
   name: String,
   version: String,
   status: String,
   download_url: Option<String>,
+  download_urls: Option<Vec<DownloadUrl>>,
   executable_path: Option<String>,
   image_url: String,
   logo_url: Option<String>,
@@ -204,23 +215,68 @@ fn is_startup_with_windows() -> Result<bool, String> {
 
 #[tauri::command]
 async fn download_game(game_id: String, download_url: String) -> Result<String, String> {
-    let app_dir = tauri::api::path::app_data_dir(&tauri::Config::default())
-        .ok_or("Could not get app data directory")?;
+    download_game_with_progress(game_id, download_url, "Unknown".to_string(), None).await
+}
+
+#[tauri::command]
+async fn download_game_with_progress(game_id: String, download_url: String, url_name: String, version: Option<String>) -> Result<String, String> {
+    // Get launcher directory (where the .exe is located)
+    let launcher_dir = std::env::current_exe()
+        .map_err(|e| format!("Failed to get launcher path: {}", e))?
+        .parent()
+        .ok_or("Failed to get launcher directory")?
+        .to_path_buf();
     
-    let games_dir = app_dir.join("games").join(&game_id);
+    // Create AntChillGame directory if it doesn't exist
+    let game_base_dir = launcher_dir.join("AntChillGame");
+    std::fs::create_dir_all(&game_base_dir).map_err(|e| e.to_string())?;
+    
+    // Get version from parameter or use default
+    let version = version.unwrap_or_else(|| "0.01".to_string());
+    let games_dir = game_base_dir.join(format!("{}.v{}", game_id, version));
     std::fs::create_dir_all(&games_dir).map_err(|e| e.to_string())?;
     
     let zip_path = games_dir.join("game.zip");
     
-    // Download file
-    let response = reqwest::get(&download_url).await.map_err(|e| e.to_string())?;
-    let bytes = response.bytes().await.map_err(|e| e.to_string())?;
+    println!("Starting download from {}: {}", url_name, download_url);
     
-    std::fs::write(&zip_path, bytes).map_err(|e| e.to_string())?;
+    // Download file with progress tracking
+    let response = reqwest::get(&download_url).await.map_err(|e| {
+        println!("Download failed from {}: {}", url_name, e);
+        e.to_string()
+    })?;
+    
+    if !response.status().is_success() {
+        let error_msg = format!("HTTP error {} from {}", response.status(), url_name);
+        println!("{}", error_msg);
+        return Err(error_msg);
+    }
+    
+    let total_size = response.content_length().unwrap_or(0);
+    let mut downloaded: u64 = 0;
+    let mut stream = response.bytes_stream();
+    let mut file = std::fs::File::create(&zip_path).map_err(|e| e.to_string())?;
+    
+    use futures_util::StreamExt;
+    
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| e.to_string())?;
+        file.write_all(&chunk).map_err(|e| e.to_string())?;
+        downloaded += chunk.len() as u64;
+        
+        if total_size > 0 {
+            let progress = (downloaded * 100) / total_size;
+            println!("Download progress: {}% ({}/{} bytes) from {}", progress, downloaded, total_size, url_name);
+        }
+    }
+    
+    println!("Download completed from {}: {} bytes", url_name, downloaded);
     
     // Extract zip
     let file = std::fs::File::open(&zip_path).map_err(|e| e.to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+    
+    println!("Extracting {} files from archive", archive.len());
     
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
@@ -242,6 +298,7 @@ async fn download_game(game_id: String, download_url: String) -> Result<String, 
     // Remove zip file
     std::fs::remove_file(&zip_path).map_err(|e| e.to_string())?;
     
+    println!("Game {} installed successfully to: {:?}", game_id, games_dir);
     Ok(games_dir.to_string_lossy().to_string())
 }
 
@@ -321,7 +378,30 @@ async fn get_offline_games() -> Result<Vec<GameInfo>, String> {
       name: "Brato.io".to_string(),
       version: "0.01".to_string(),
       status: "available".to_string(),
-      download_url: Some("https://pub-72a5a57231ae489cb74409bdc120cb93.r2.dev/games/brato_io_v0.01.zip".to_string()),
+      download_url: Some("https://pub-72a5a57231ae489cb74409bdc120cb93.r2.dev/games-prod-antchill/demo.zip".to_string()),
+      download_urls: Some(vec![
+        DownloadUrl {
+          name: "R2 Cloudflare (Primary)".to_string(),
+          url: "https://pub-72a5a57231ae489cb74409bdc120cb93.r2.dev/games-prod-antchill/demo.zip".to_string(),
+          r#type: "application/x-zip-compressed".to_string(),
+          size: "100 MB".to_string(),
+          primary: true,
+        },
+        DownloadUrl {
+          name: "Google Drive (Backup)".to_string(),
+          url: "https://drive.google.com/file/d/10eZF3BUX19r1_z8aBx6u0pwd6Or-83RB/view?usp=drive_link".to_string(),
+          r#type: "application/x-zip-compressed".to_string(),
+          size: "100 MB".to_string(),
+          primary: false,
+        },
+        DownloadUrl {
+          name: "Mega (Alternative)".to_string(),
+          url: "https://mega.nz/file/demo.zip".to_string(),
+          r#type: "application/x-zip-compressed".to_string(),
+          size: "100 MB".to_string(),
+          primary: false,
+        },
+      ]),
       executable_path: None,
       image_url: "https://files.catbox.moe/2d8fvz.png".to_string(),
       logo_url: Some("https://lh3.googleusercontent.com/pw/AP1GczMLJwyjMDaF7xJ3VS2zGuKTDnzoEBZ57qgNT39c9_kthr_5POsfSnR0Wpacn9tz4CeYjciAuAIZPDO7N67wUswUC7cDpJTymmKlxH2ehuTHvwoUcyM=w2400".to_string()),
@@ -339,6 +419,7 @@ async fn get_offline_games() -> Result<Vec<GameInfo>, String> {
       version: "1.0".to_string(),
       status: "coming_soon".to_string(),
       download_url: None,
+      download_urls: None,
       executable_path: None,
       image_url: "https://files.catbox.moe/6f2nc5.png".to_string(),
       logo_url: Some("https://lh3.googleusercontent.com/pw/AP1GczNZq-auYxUvVXyPKce-MVkITxLbwAkSv3IJLLwH7toRhEo_8oEHI4R0Vs9-lVluYDBcpEG0I2oIR_dSqRJXMkO5ibytMLneSvCxppwCus9boxvEqM=w2400".to_string()),
@@ -606,31 +687,25 @@ async fn start_dragging(app: tauri::AppHandle) -> Result<(), String> {
 async fn scan_local_games(games: Vec<GameInfo>) -> Result<Vec<GameInfo>, String> {
     let mut scanned_games = games;
     
-    // Get launcher directory - go up to the project root
+    // Get launcher directory (where the .exe is located)
     let launcher_dir = std::env::current_exe()
         .map_err(|e| format!("Failed to get launcher path: {}", e))?
         .parent()
         .ok_or("Failed to get launcher directory")?
         .to_path_buf();
     
-    // Go up to the project root (where AntChillGame folder should be)
-    let project_root = launcher_dir
-        .ancestors()
-        .find(|path| path.file_name().map_or(false, |name| name == "Laucher"))
-        .unwrap_or(&launcher_dir)
-        .to_path_buf();
-    
     println!("Launcher directory: {:?}", launcher_dir);
-    println!("Project root: {:?}", project_root);
     
-    // Look for AntChillGame directory in project root
-    let game_base_dir = project_root.join("AntChillGame");
+    // Look for AntChillGame directory in launcher directory
+    let game_base_dir = launcher_dir.join("AntChillGame");
     println!("Looking for game base directory: {:?}", game_base_dir);
     
+    // Create AntChillGame directory if it doesn't exist
     if !game_base_dir.exists() {
-        println!("AntChillGame directory not found, returning games as-is");
-        // If AntChillGame directory doesn't exist, return games as-is
-        return Ok(scanned_games);
+        println!("AntChillGame directory not found, creating it...");
+        std::fs::create_dir_all(&game_base_dir)
+            .map_err(|e| format!("Failed to create AntChillGame directory: {}", e))?;
+        println!("AntChillGame directory created successfully");
     }
     
     println!("AntChillGame directory found, scanning for games...");
@@ -644,7 +719,7 @@ async fn scan_local_games(games: Vec<GameInfo>) -> Result<Vec<GameInfo>, String>
         }
         
         // Look for game directory with version
-        let game_dir_pattern = format!("{}.v{}", game.name, game.version);
+        let game_dir_pattern = format!("{}.v{}", game.id, game.version);
         let game_dir = game_base_dir.join(&game_dir_pattern);
         println!("Looking for game directory: {:?}", game_dir);
         
@@ -662,7 +737,7 @@ async fn scan_local_games(games: Vec<GameInfo>) -> Result<Vec<GameInfo>, String>
         } else {
             println!("Game directory not found, checking for older versions...");
             // Check if there's an older version installed
-            if let Some(older_version) = find_older_version(&game_base_dir, &game.name)? {
+            if let Some(older_version) = find_older_version(&game_base_dir, &game.id)? {
                 println!("Older version found: {}", older_version);
                 game.executable_path = Some(older_version);
                 game.status = "update_available".to_string();
@@ -707,7 +782,7 @@ fn find_executable_in_directory(dir: &std::path::Path) -> Result<Option<String>,
     Ok(None)
 }
 
-fn find_older_version(base_dir: &std::path::Path, game_name: &str) -> Result<Option<String>, String> {
+fn find_older_version(base_dir: &std::path::Path, game_id: &str) -> Result<Option<String>, String> {
     if let Ok(entries) = std::fs::read_dir(base_dir) {
         for entry in entries {
             if let Ok(entry) = entry {
@@ -715,7 +790,7 @@ fn find_older_version(base_dir: &std::path::Path, game_name: &str) -> Result<Opt
                 if path.is_dir() {
                     if let Some(dir_name) = path.file_name() {
                         let dir_name_str = dir_name.to_string_lossy();
-                        if dir_name_str.starts_with(game_name) {
+                        if dir_name_str.starts_with(game_id) {
                             // Found a version of this game
                             if let Some(exec_path) = find_executable_in_directory(&path)? {
                                 return Ok(Some(exec_path));
@@ -843,6 +918,7 @@ fn main() {
         .on_system_tray_event(handle_system_tray_event)
         .invoke_handler(tauri::generate_handler![
             download_game,
+            download_game_with_progress,
             launch_game,
             get_games,
             get_offline_games,

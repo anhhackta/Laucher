@@ -112,6 +112,62 @@ body {
   border: 1px solid rgba(52, 152, 219, 0.2);
 }
 
+.app.light .download-options {
+  background: rgba(52, 152, 219, 0.05);
+  border: 1px solid rgba(52, 152, 219, 0.1);
+}
+
+.app.light .download-option {
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.app.light .download-option.primary {
+  background: rgba(52, 152, 219, 0.1);
+  border-color: #3498db;
+}
+
+.app.light .download-option:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.app.light .download-option.primary:hover {
+  background: rgba(52, 152, 219, 0.15);
+}
+
+.app.light .download-name {
+  color: #2c3e50;
+}
+
+.app.light .download-size {
+  color: #7f8c8d;
+}
+
+.app.light .download-progress {
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.app.light .progress-bar {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.app.light .progress-text {
+  color: #7f8c8d;
+}
+
+.app.light .download-description {
+  color: #7f8c8d;
+}
+
+.app.light .download-name {
+  color: #2c3e50;
+}
+
+.app.light .download-size, .app.light .download-type {
+  color: #7f8c8d;
+}
+
 .app.light .welcome-screen {
   color: #2c3e50;
 }
@@ -1137,6 +1193,82 @@ body {
   transform: none;
 }
 
+/* Download Progress */
+.download-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.download-content {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.download-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top: 2px solid #ffffff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.download-progress {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  padding: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #27ae60, #2ecc71);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+  position: relative;
+}
+
+.progress-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.progress-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.progress-text {
+  font-size: 0.85rem;
+  color: #bdc3c7;
+  font-weight: 500;
+}
+
 /* Game Details */
 .game-details {
   display: grid;
@@ -1220,6 +1352,122 @@ body {
 .changelog p {
   color: #ecf0f1;
   line-height: 1.5;
+}
+
+/* Download Options */
+.download-options {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: rgba(52, 152, 219, 0.1);
+  border-radius: 8px;
+  border: 1px solid rgba(52, 152, 219, 0.2);
+}
+
+.download-options h4 {
+  color: #3498db;
+  margin-bottom: 0.5rem;
+  font-size: 1.1rem;
+}
+
+.download-description {
+  color: #bdc3c7;
+  font-size: 0.9rem;
+  margin-bottom: 1rem;
+  line-height: 1.4;
+}
+
+.download-urls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.download-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  transition: all 0.3s ease;
+}
+
+.download-option.primary {
+  background: rgba(52, 152, 219, 0.2);
+  border-color: #3498db;
+  box-shadow: 0 2px 8px rgba(52, 152, 219, 0.3);
+}
+
+.download-option:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: translateY(-1px);
+}
+
+.download-option.primary:hover {
+  background: rgba(52, 152, 219, 0.3);
+  box-shadow: 0 4px 12px rgba(52, 152, 219, 0.4);
+}
+
+.download-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.download-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.download-name {
+  font-weight: 600;
+  color: #ffffff;
+  font-size: 0.95rem;
+}
+
+.primary-badge {
+  background: linear-gradient(45deg, #f39c12, #e67e22);
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.download-details {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.download-size, .download-type {
+  color: #bdc3c7;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.download-btn {
+  background: linear-gradient(45deg, #27ae60, #1e8449);
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+}
+
+.download-btn:hover {
+  background: linear-gradient(45deg, #229954, #196f3d);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(39, 174, 96, 0.4);
 }
 
 /* Welcome Screen */

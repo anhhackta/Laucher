@@ -4,12 +4,21 @@ import { open } from '@tauri-apps/api/shell';
 import { useLanguage } from './hooks/useLanguage';
 import './App.css';
 
+interface DownloadUrl {
+  name: string;
+  url: string;
+  type: string;
+  size: string;
+  primary: boolean;
+}
+
 interface GameInfo {
   id: string;
   name: string;
   version: string;
   status: string;
   download_url?: string;
+  download_urls?: DownloadUrl[];
   executable_path?: string;
   image_url: string;
   logo_url?: string;
@@ -77,6 +86,7 @@ function App() {
   const [lastOnlineCheck, setLastOnlineCheck] = useState<Date>(new Date());
   const [activeSettingsTab, setActiveSettingsTab] = useState<'general' | 'game'>('general');
   const [gameBaseDirectory, setGameBaseDirectory] = useState('C:\\Games\\AntChillGame');
+  const [downloadProgress, setDownloadProgress] = useState<{[gameId: string]: {progress: number, urlName: string}}>({});
   const headerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -248,22 +258,87 @@ function App() {
   };
 
   const handleDownloadGame = async (game: GameInfo) => {
-    if (!game.download_url) return;
+    if (!game.download_urls || game.download_urls.length === 0) {
+      console.error('No download URLs available for game:', game.name);
+      return;
+    }
     
     setDownloading(game.id);
-    try {
-      await invoke('download_game', { 
-        gameId: game.id, 
-        downloadUrl: game.download_url 
-      });
-      // Refresh games list
-      const updatedGames = await invoke<GameInfo[]>('get_games');
-      setGames(updatedGames);
-    } catch (err) {
-      console.error('Download failed:', err);
-    } finally {
-      setDownloading(null);
+    
+    // Try each download URL in order (primary first, then others)
+    const sortedUrls = [...game.download_urls].sort((a, b) => {
+      if (a.primary && !b.primary) return -1;
+      if (!a.primary && b.primary) return 1;
+      return 0;
+    });
+    
+    let lastError: string = '';
+    
+    for (let i = 0; i < sortedUrls.length; i++) {
+      const downloadUrl = sortedUrls[i];
+      console.log(`Trying download URL ${i + 1}/${sortedUrls.length}: ${downloadUrl.name}`);
+      
+      try {
+        // Set initial progress
+        setDownloadProgress(prev => ({
+          ...prev,
+          [game.id]: { progress: 0, urlName: downloadUrl.name }
+        }));
+        
+              await invoke('download_game_with_progress', { 
+                gameId: game.id, 
+                downloadUrl: downloadUrl.url,
+                urlName: downloadUrl.name,
+                version: game.version
+              });
+        
+        // Success! Refresh games list
+        const updatedGames = await invoke<GameInfo[]>('get_games');
+        setGames(updatedGames);
+        
+        // Clear progress
+        setDownloadProgress(prev => {
+          const newProgress = { ...prev };
+          delete newProgress[game.id];
+          return newProgress;
+        });
+        
+        // Show success notification
+        alert(`✅ ${game.name} downloaded and installed successfully!\n\nSource: ${downloadUrl.name}\n\nYou can now play the game!`);
+        
+        console.log(`Download successful using ${downloadUrl.name}`);
+        return;
+        
+      } catch (err) {
+        lastError = err as string;
+        console.error(`Download failed with ${downloadUrl.name}:`, err);
+        
+        // If this is not the last URL, continue to next one
+        if (i < sortedUrls.length - 1) {
+          console.log(`Trying next download URL...`);
+          continue;
+        }
+      }
     }
+    
+    // All URLs failed
+    console.error('All download URLs failed. Last error:', lastError);
+    
+    // Clear progress
+    setDownloadProgress(prev => {
+      const newProgress = { ...prev };
+      delete newProgress[game.id];
+      return newProgress;
+    });
+    
+    // Show detailed error message
+    const errorMessage = `Download failed for ${game.name}!\n\n` +
+      `Tried ${sortedUrls.length} download sources:\n` +
+      sortedUrls.map((url, index) => `${index + 1}. ${url.name}`).join('\n') +
+      `\n\nLast error: ${lastError}\n\nPlease check your internet connection and try again.`;
+    
+    alert(errorMessage);
+    setDownloading(null);
   };
 
   const handleLaunchGame = async (game: GameInfo) => {
@@ -893,13 +968,37 @@ function App() {
                           )}
                         </>
                       ) : (
-                        <button 
-                          className="btn-install"
-                          onClick={() => handleDownloadGame(selectedGame)}
-                          disabled={downloading === selectedGame.id}
-                        >
-                          {downloading === selectedGame.id ? t('launcher.games.downloading') : t('launcher.games.install')}
-                        </button>
+                        <div className="download-container">
+                          <button 
+                            className="btn-install"
+                            onClick={() => handleDownloadGame(selectedGame)}
+                            disabled={downloading === selectedGame.id}
+                          >
+                            {downloading === selectedGame.id ? (
+                              <div className="download-content">
+                                <div className="download-spinner"></div>
+                                <span>{t('launcher.games.downloading')}</span>
+                              </div>
+                            ) : (
+                              t('launcher.games.install')
+                            )}
+                          </button>
+                          {downloading === selectedGame.id && downloadProgress[selectedGame.id] && (
+                            <div className="download-progress">
+                              <div className="progress-bar">
+                                <div 
+                                  className="progress-fill" 
+                                  style={{ width: `${downloadProgress[selectedGame.id].progress}%` }}
+                                ></div>
+                              </div>
+                              <div className="progress-info">
+                                <span className="progress-text">
+                                  {downloadProgress[selectedGame.id].progress}% - {downloadProgress[selectedGame.id].urlName}
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       )}
                     </>
                   )}
@@ -923,6 +1022,45 @@ function App() {
                   {selectedGame.release_date && (
                     <div className="game-stat">
                       <strong>Release Date:</strong> {selectedGame.release_date}
+                    </div>
+                  )}
+                  
+                  {selectedGame.download_urls && selectedGame.download_urls.length > 0 && (
+                    <div className="download-options">
+                      <h4>📥 Download Sources</h4>
+                      <p className="download-description">
+                        Multiple download sources available for faster and more reliable downloads.
+                        The launcher will automatically try each source until one succeeds.
+                      </p>
+                      <div className="download-urls">
+                        {selectedGame.download_urls.map((url, index) => (
+                          <div key={index} className={`download-option ${url.primary ? 'primary' : ''}`}>
+                            <div className="download-info">
+                              <div className="download-header">
+                                <span className="download-name">{url.name}</span>
+                                {url.primary && <span className="primary-badge">PRIMARY</span>}
+                              </div>
+                              <div className="download-details">
+                                <span className="download-size">📦 {url.size}</span>
+                                <span className="download-type">🔗 {url.type}</span>
+                              </div>
+                            </div>
+                            <button 
+                              className="download-btn"
+                              onClick={() => {
+                                if (url.primary) {
+                                  handleDownloadGame(selectedGame);
+                                } else {
+                                  open(url.url);
+                                }
+                              }}
+                              disabled={downloading === selectedGame.id}
+                            >
+                              {url.primary ? '🚀 Auto Download' : '🔗 Open Link'}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                   
