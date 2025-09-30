@@ -301,7 +301,7 @@ async fn download_game_with_progress(
             .map_err(|e| format!("Failed to clear existing installation: {}", e))?;
     }
     std::fs::create_dir_all(&games_dir).map_err(|e| e.to_string())?;
-
+    
     let zip_path = games_dir.join("download.zip");
 
     println!("Starting download from {}: {}", url_name, download_url);
@@ -413,11 +413,11 @@ async fn download_game_with_progress(
     let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
 
     println!("Extracting {} files from archive", archive.len());
-
+    
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
         let outpath = games_dir.join(file.name());
-
+        
         if file.name().ends_with('/') {
             std::fs::create_dir_all(&outpath).map_err(|e| e.to_string())?;
         } else {
@@ -430,9 +430,9 @@ async fn download_game_with_progress(
             std::io::copy(&mut file, &mut outfile).map_err(|e| e.to_string())?;
         }
     }
-
+    
     std::fs::remove_file(&zip_path).map_err(|e| e.to_string())?;
-
+    
     let executable_path = find_executable_in_directory(&games_dir)?;
     let install_root = executable_path
         .as_ref()
@@ -465,17 +465,17 @@ async fn download_game_with_progress(
 #[tauri::command]
 async fn launch_game(executable_path: String) -> Result<(), String> {
     let path = PathBuf::from(&executable_path);
-
+    
     #[cfg(target_os = "windows")]
     {
         Command::new(&path).spawn().map_err(|e| e.to_string())?;
     }
-
+    
     #[cfg(not(target_os = "windows"))]
     {
         Command::new(&path).spawn().map_err(|e| e.to_string())?;
     }
-
+    
     Ok(())
 }
 
@@ -493,7 +493,7 @@ async fn get_games() -> Result<Vec<GameInfo>, String> {
 
     // Online mode - try to fetch latest manifest
     let manifest_url = "https://pub-72a5a57231ae489cb74409bdc120cb93.r2.dev/manifest.json";
-
+    
     match reqwest::get(manifest_url).await {
         Ok(response) => {
             if response.status().is_success() {
@@ -524,7 +524,6 @@ async fn get_games() -> Result<Vec<GameInfo>, String> {
         return Ok(local_manifest.games);
     }
 
-
     // Final fallback to hardcoded data
     get_offline_games().await
 }
@@ -533,11 +532,11 @@ async fn get_games() -> Result<Vec<GameInfo>, String> {
 async fn get_offline_games() -> Result<Vec<GameInfo>, String> {
     // Return local games data for offline mode
     let games = vec![
-    GameInfo {
+        GameInfo {
       id: "broto".to_string(),
       name: "broto".to_string(),
       version: "0.0.1".to_string(),
-      status: "available".to_string(),
+            status: "available".to_string(),
       download_url: Some("https://pub-72a5a57231ae489cb74409bdc120cb93.r2.dev/games-prod-antchill/demo.zip".to_string()),
       download_urls: Some(vec![
         DownloadUrl {
@@ -563,36 +562,36 @@ async fn get_offline_games() -> Result<Vec<GameInfo>, String> {
         },
       ]),
       executable_path: None,
-      image_url: "https://files.catbox.moe/2d8fvz.png".to_string(),
+            image_url: "https://files.catbox.moe/2d8fvz.png".to_string(),
       logo_url: Some("https://lh3.googleusercontent.com/pw/AP1GczMLJwyjMDaF7xJ3VS2zGuKTDnzoEBZ57qgNT39c9_kthr_5POsfSnR0Wpacn9tz4CeYjciAuAIZPDO7N67wUswUC7cDpJTymmKlxH2ehuTHvwoUcyM=w2400".to_string()),
-      background_id: "brato_io_bg".to_string(),
-      description: "A space exploration game with stunning visuals and engaging gameplay.".to_string(),
+      background_id: "broto_bg".to_string(),
+            description: "A space exploration game with stunning visuals and engaging gameplay.".to_string(),
       file_size: Some("100 MB".to_string()),
-      release_date: Some("2023-01-01".to_string()),
+            release_date: Some("2023-01-01".to_string()),
       changelog: Some("Initial release with space exploration mechanics.".to_string()),
-      is_coming_soon: false,
-      repair_enabled: true,
-    },
-    GameInfo {
+            is_coming_soon: false,
+            repair_enabled: true,
+        },
+        GameInfo {
       id: "antknow".to_string(),
       name: "AntKnow".to_string(),
       version: "1.0".to_string(),
-      status: "coming_soon".to_string(),
-      download_url: None,
+            status: "coming_soon".to_string(),
+            download_url: None,
       download_urls: None,
-      executable_path: None,
-      image_url: "https://files.catbox.moe/6f2nc5.png".to_string(),
+            executable_path: None,
+            image_url: "https://files.catbox.moe/6f2nc5.png".to_string(),
       logo_url: Some("https://lh3.googleusercontent.com/pw/AP1GczNZq-auYxUvVXyPKce-MVkITxLbwAkSv3IJLLwH7toRhEo_8oEHI4R0Vs9-lVluYDBcpEG0I2oIR_dSqRJXMkO5ibytMLneSvCxppwCus9boxvEqM=w2400".to_string()),
       background_id: "antknow_bg".to_string(),
-      description: "A mysterious adventure game set in ancient ruins.".to_string(),
-      file_size: None,
-      release_date: None,
-      changelog: None,
-      is_coming_soon: true,
-      repair_enabled: false,
-    },
-  ];
-
+            description: "A mysterious adventure game set in ancient ruins.".to_string(),
+            file_size: None,
+            release_date: None,
+            changelog: None,
+            is_coming_soon: true,
+            repair_enabled: false,
+        },
+    ];
+    
     Ok(games)
 }
 
@@ -687,7 +686,7 @@ async fn check_game_updates(
     }
 
     let manifest_url = "https://your-username.github.io/your-game-launcher/manifest.json";
-
+    
     match reqwest::get(manifest_url).await {
         Ok(response) => {
             if response.status().is_success() {
@@ -710,7 +709,7 @@ async fn check_game_updates(
         }
         Err(e) => eprintln!("Failed to fetch manifest for update check: {}", e),
     }
-
+    
     Ok(UpdateInfo {
         current_version: current_version.clone(),
         latest_version: current_version,
@@ -736,7 +735,7 @@ async fn download_game_update(
         if current_installation.exists() {
             let backup_dir =
                 backups_root.join(format!("backup_{}", chrono::Utc::now().timestamp()));
-            std::fs::create_dir_all(&backup_dir).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(&backup_dir).map_err(|e| e.to_string())?;
             copy_dir_recursive(&current_installation, &backup_dir).map_err(|e| e.to_string())?;
         }
     }
@@ -751,7 +750,7 @@ async fn download_game_update(
     .await;
 
     cleanup_old_backups(&backups_root).map_err(|e| e.to_string())?;
-
+    
     result
 }
 
@@ -798,14 +797,14 @@ async fn repair_game(game_id: String) -> Result<RepairResult, String> {
             message: "Game not found".to_string(),
         });
     };
-
+    
     let mut repaired_files = vec![];
     let mut errors = vec![];
-
+    
     for file in games_dir.read_dir().map_err(|e| e.to_string())? {
         let file = file.map_err(|e| e.to_string())?;
         let path = file.path();
-
+        
         if path.is_file() {
             let file_name = path.file_name().unwrap().to_string_lossy().to_string();
             if file_name.ends_with(".exe")
@@ -820,13 +819,13 @@ async fn repair_game(game_id: String) -> Result<RepairResult, String> {
             }
         }
     }
-
+    
     let message = if errors.is_empty() {
         "Game repaired successfully".to_string()
     } else {
         "Game repaired with errors".to_string()
     };
-
+    
     Ok(RepairResult {
         success: errors.is_empty(),
         repaired_files,
@@ -843,7 +842,7 @@ async fn check_network_status() -> Result<NetworkStatus, String> {
     } else {
         "No internet connection. Launcher requires internet to function.".to_string()
     };
-
+    
     Ok(NetworkStatus { is_online, message })
 }
 
@@ -1035,6 +1034,7 @@ fn find_executable_in_directory(dir: &Path) -> Result<Option<String>, String> {
         println!("Selected executable: {:?}", best);
         return Ok(Some(best.to_string_lossy().to_string()));
     }
+
     Ok(None)
 }
 
@@ -1094,7 +1094,7 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()
             let ty = entry.file_type()?;
             let src_path = entry.path();
             let dst_path = dst.join(entry.file_name());
-
+            
             if ty.is_dir() {
                 copy_dir_recursive(&src_path, &dst_path)?;
             } else {
@@ -1109,11 +1109,11 @@ fn cleanup_old_backups(backup_dir: &std::path::Path) -> Result<(), std::io::Erro
     if !backup_dir.exists() {
         return Ok(());
     }
-
+    
     let mut entries: Vec<_> = std::fs::read_dir(backup_dir)?
         .filter_map(|entry| entry.ok())
         .collect();
-
+    
     // Sort by creation time (newest first)
     entries.sort_by(|a, b| {
         let a_time = a
@@ -1126,7 +1126,7 @@ fn cleanup_old_backups(backup_dir: &std::path::Path) -> Result<(), std::io::Erro
             .unwrap_or(SystemTime::UNIX_EPOCH);
         a_time.cmp(&b_time)
     });
-
+    
     // Remove old backups, keep only last 3
     if entries.len() > 3 {
         for entry in entries[..entries.len() - 3].iter() {
@@ -1137,7 +1137,7 @@ fn cleanup_old_backups(backup_dir: &std::path::Path) -> Result<(), std::io::Erro
             }
         }
     }
-
+    
     Ok(())
 }
 
@@ -1145,7 +1145,7 @@ fn create_system_tray() -> SystemTray {
     let quit = CustomMenuItem::new("quit".to_string(), "Thoát");
     let show = CustomMenuItem::new("show".to_string(), "Hiển thị");
     let tray_menu = SystemTrayMenu::new().add_item(show).add_item(quit);
-
+    
     SystemTray::new().with_menu(tray_menu)
 }
 
@@ -1157,15 +1157,15 @@ fn handle_system_tray_event(app: &AppHandle, event: SystemTrayEvent) {
             window.set_focus().unwrap();
         }
         SystemTrayEvent::MenuItemClick { id, .. } => match id.as_str() {
-            "quit" => {
-                std::process::exit(0);
-            }
-            "show" => {
-                let window = app.get_window("main").unwrap();
-                window.show().unwrap();
-                window.set_focus().unwrap();
-            }
-            _ => {}
+                "quit" => {
+                    std::process::exit(0);
+                }
+                "show" => {
+                    let window = app.get_window("main").unwrap();
+                    window.show().unwrap();
+                    window.set_focus().unwrap();
+                }
+                _ => {}
         },
         _ => {}
     }
