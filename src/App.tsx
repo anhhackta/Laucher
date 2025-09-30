@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
+import { listen } from '@tauri-apps/api/event';
 import { open } from '@tauri-apps/api/shell';
 import { useLanguage } from './hooks/useLanguage';
 import './App.css';
@@ -67,6 +68,33 @@ interface NetworkStatus {
   message: string;
 }
 
+type DownloadStatus = 'started' | 'progress' | 'extracting' | 'completed' | 'error';
+
+interface DownloadProgressPayload {
+  game_id: string;
+  url_name: string;
+  status: DownloadStatus;
+  progress?: number;
+  downloaded_bytes: number;
+  total_bytes?: number;
+  speed_bytes_per_second: number;
+  message?: string;
+  install_dir?: string;
+  executable_path?: string;
+}
+
+interface DownloadProgressState {
+  progress: number;
+  urlName: string;
+  downloadedBytes: number;
+  totalBytes?: number;
+  speedBytesPerSecond: number;
+  status: DownloadStatus;
+  message?: string;
+  installDir?: string;
+  executablePath?: string;
+}
+
 function App() {
   const { t, currentLanguage, changeLanguage } = useLanguage();
   const [games, setGames] = useState<GameInfo[]>([]);
@@ -85,13 +113,42 @@ function App() {
   const [isOfflineMode, setIsOfflineMode] = useState(false);
   const [lastOnlineCheck, setLastOnlineCheck] = useState<Date>(new Date());
   const [activeSettingsTab, setActiveSettingsTab] = useState<'general' | 'game'>('general');
-  const [gameBaseDirectory, setGameBaseDirectory] = useState('C:\\Games\\AntChillGame');
-  const [downloadProgress, setDownloadProgress] = useState<{[gameId: string]: {progress: number, urlName: string}}>({});
+  const [gameBaseDirectory, setGameBaseDirectory] = useState<string>('');
+  const [downloadProgress, setDownloadProgress] = useState<Record<string, DownloadProgressState>>({});
   const headerRef = useRef<HTMLDivElement>(null);
+
+  const refreshGames = useCallback(async (focusGameId?: string) => {
+    try {
+      const manifestGames = await invoke<GameInfo[]>('get_games');
+      let scannedGames = manifestGames;
+
+      try {
+        scannedGames = await invoke<GameInfo[]>('scan_local_games', { games: manifestGames });
+      } catch (scanErr) {
+        console.error('Local scan failed during refresh:', scanErr);
+      }
+
+      setGames(scannedGames);
+
+      if (focusGameId) {
+        const updated = scannedGames.find((game) => game.id === focusGameId);
+        if (updated) {
+          setSelectedGame(updated);
+        }
+      } else if (selectedGame) {
+        const updated = scannedGames.find((game) => game.id === selectedGame.id);
+        if (updated) {
+          setSelectedGame(updated);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to refresh games:', err);
+    }
+  }, [selectedGame]);
 
   useEffect(() => {
     loadLauncher();
-    
+
     // Tắt F12 và Developer Tools
     const handleKeyDown = (e: KeyboardEvent) => {
       // Tắt F12
@@ -141,6 +198,40 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const unlistenPromise = listen<DownloadProgressPayload>('download-progress', (event) => {
+      const payload = event.payload;
+
+      setDownloadProgress((previous) => {
+        const existing = previous[payload.game_id];
+        const progressValue = payload.progress ?? existing?.progress ?? 0;
+
+        return {
+          ...previous,
+          [payload.game_id]: {
+            progress: progressValue,
+            urlName: payload.url_name,
+            downloadedBytes: payload.downloaded_bytes,
+            totalBytes: payload.total_bytes,
+            speedBytesPerSecond: payload.speed_bytes_per_second,
+            status: payload.status,
+            message: payload.message ?? existing?.message,
+            installDir: payload.install_dir ?? existing?.installDir,
+            executablePath: payload.executable_path ?? existing?.executablePath,
+          },
+        };
+      });
+
+      if (payload.status === 'completed') {
+        refreshGames(payload.game_id);
+      }
+    });
+
+    return () => {
+      unlistenPromise.then((unlisten) => unlisten());
+    };
+  }, [refreshGames]);
+
   // Kiểm tra kết nối định kỳ
   useEffect(() => {
     const checkConnectionInterval = setInterval(async () => {
@@ -188,19 +279,26 @@ function App() {
         // Chuyển sang offline mode
         setIsOfflineMode(true);
         setError(null); // Không hiện error khi offline
-        
+
         // Load offline games data
         const offlineGames = await invoke<GameInfo[]>('get_offline_games');
         setGames(offlineGames);
-        
+
         // Load offline social links
         const offlineSocialLinks = await invoke<SocialLink[]>('get_social_links');
         setSocialLinks(offlineSocialLinks);
-        
+
+        try {
+          const baseDir = await invoke<string>('get_game_installation_path');
+          setGameBaseDirectory(baseDir);
+        } catch (pathErr) {
+          console.error('Failed to resolve game directory in offline mode:', pathErr);
+        }
+
         if (offlineGames.length > 0) {
           setCurrentBackground(offlineGames[0].background_id);
         }
-        
+
         setIsLoading(false);
         return;
       }
@@ -218,7 +316,14 @@ function App() {
         console.error('Local scan failed, using manifest games:', scanError);
         setGames(gamesResult);
       }
-      
+
+      try {
+        const baseDir = await invoke<string>('get_game_installation_path');
+        setGameBaseDirectory(baseDir);
+      } catch (pathErr) {
+        console.error('Failed to resolve game directory:', pathErr);
+      }
+
       // Load social links from manifest
       const socialLinksResult = await invoke<SocialLink[]>('get_social_links');
       setSocialLinks(socialLinksResult);
@@ -262,57 +367,59 @@ function App() {
       console.error('No download URLs available for game:', game.name);
       return;
     }
-    
+
     setDownloading(game.id);
-    
+
     // Try each download URL in order (primary first, then others)
     const sortedUrls = [...game.download_urls].sort((a, b) => {
       if (a.primary && !b.primary) return -1;
       if (!a.primary && b.primary) return 1;
       return 0;
     });
-    
+
     let lastError: string = '';
-    
+
     for (let i = 0; i < sortedUrls.length; i++) {
       const downloadUrl = sortedUrls[i];
       console.log(`Trying download URL ${i + 1}/${sortedUrls.length}: ${downloadUrl.name}`);
-      
+
       try {
         // Set initial progress
         setDownloadProgress(prev => ({
           ...prev,
-          [game.id]: { progress: 0, urlName: downloadUrl.name }
+          [game.id]: {
+            progress: 0,
+            urlName: downloadUrl.name,
+            downloadedBytes: 0,
+            totalBytes: undefined,
+            speedBytesPerSecond: 0,
+            status: 'started',
+          }
         }));
-        
-              await invoke('download_game_with_progress', { 
-                gameId: game.id, 
-                downloadUrl: downloadUrl.url,
-                urlName: downloadUrl.name,
-                version: game.version
-              });
-        
-        // Success! Refresh games list
-        const updatedGames = await invoke<GameInfo[]>('get_games');
-        setGames(updatedGames);
-        
-        // Clear progress
-        setDownloadProgress(prev => {
-          const newProgress = { ...prev };
-          delete newProgress[game.id];
-          return newProgress;
+
+        await invoke<string>('download_game_with_progress', {
+          gameId: game.id,
+          downloadUrl: downloadUrl.url,
+          urlName: downloadUrl.name,
+          version: game.version
         });
-        
-        // Show success notification
+
+        setDownloadProgress(prev => {
+          const next = { ...prev };
+          delete next[game.id];
+          return next;
+        });
+
+        setDownloading(null);
+
         alert(`✅ ${game.name} downloaded and installed successfully!\n\nSource: ${downloadUrl.name}\n\nYou can now play the game!`);
-        
         console.log(`Download successful using ${downloadUrl.name}`);
         return;
-        
+
       } catch (err) {
         lastError = err as string;
         console.error(`Download failed with ${downloadUrl.name}:`, err);
-        
+
         // If this is not the last URL, continue to next one
         if (i < sortedUrls.length - 1) {
           console.log(`Trying next download URL...`);
@@ -320,23 +427,23 @@ function App() {
         }
       }
     }
-    
+
     // All URLs failed
     console.error('All download URLs failed. Last error:', lastError);
-    
+
     // Clear progress
     setDownloadProgress(prev => {
       const newProgress = { ...prev };
       delete newProgress[game.id];
       return newProgress;
     });
-    
+
     // Show detailed error message
     const errorMessage = `Download failed for ${game.name}!\n\n` +
       `Tried ${sortedUrls.length} download sources:\n` +
       sortedUrls.map((url, index) => `${index + 1}. ${url.name}`).join('\n') +
       `\n\nLast error: ${lastError}\n\nPlease check your internet connection and try again.`;
-    
+
     alert(errorMessage);
     setDownloading(null);
   };
@@ -362,7 +469,7 @@ function App() {
       
       if (updateInfo.needs_update) {
         if (confirm(`Update available: ${updateInfo.latest_version}\n\n${updateInfo.changelog || 'No changelog available'}\n\nUpdate now?`)) {
-          await handleGameUpdate(game, updateInfo.update_url!);
+          await handleGameUpdate(game, updateInfo.update_url!, updateInfo.latest_version);
         }
       } else {
         alert('Game is up to date!');
@@ -372,21 +479,36 @@ function App() {
     }
   };
 
-  const handleGameUpdate = async (game: GameInfo, updateUrl: string) => {
+  const handleGameUpdate = async (game: GameInfo, updateUrl: string, newVersion?: string) => {
     setDownloading(game.id);
+    setDownloadProgress(prev => ({
+      ...prev,
+      [game.id]: {
+        progress: 0,
+        urlName: t('launcher.games.update_package'),
+        downloadedBytes: 0,
+        totalBytes: undefined,
+        speedBytesPerSecond: 0,
+        status: 'started',
+      }
+    }));
     try {
       await invoke('download_game_update', {
         gameId: game.id,
-        downloadUrl: updateUrl
+        downloadUrl: updateUrl,
+        version: newVersion ?? game.version,
+        currentVersion: game.version
       });
-      // Refresh games list
-      const updatedGames = await invoke<GameInfo[]>('get_games');
-      setGames(updatedGames);
       alert('Game updated successfully!');
     } catch (err) {
       console.error('Update failed:', err);
       alert('Update failed. Please try again.');
     } finally {
+      setDownloadProgress(prev => {
+        const next = { ...prev };
+        delete next[game.id];
+        return next;
+      });
       setDownloading(null);
     }
   };
@@ -530,9 +652,7 @@ function App() {
 
   const handleRescanGames = async () => {
     try {
-      // Trigger automatic game scan
-      const updatedGames = await invoke<GameInfo[]>('scan_games');
-      setGames(updatedGames);
+      await refreshGames();
       console.log('Games rescanned successfully');
     } catch (err) {
       console.error('Failed to rescan games:', err);
@@ -553,8 +673,12 @@ function App() {
 
   const handleOpenGameDirectory = async () => {
     try {
-      // Open the main AntChillGame directory
-      await invoke('open_directory', { path: 'AntChillGame' });
+      if (!gameBaseDirectory) {
+        console.warn('Game base directory is not available yet.');
+        return;
+      }
+
+      await invoke('open_directory', { path: gameBaseDirectory });
     } catch (err) {
       console.error('Failed to open game directory:', err);
     }
@@ -563,7 +687,7 @@ function App() {
   const handleGameSelect = (game: GameInfo) => {
     setSelectedGame(game);
     setCurrentBackground(game.background_id);
-    
+
     // Apply game-specific theme colors
     const gamePanel = document.querySelector('.game-panel');
     if (gamePanel) {
@@ -579,6 +703,47 @@ function App() {
         gamePanel.classList.add('game-theme-3');
       }
     }
+  };
+
+  const getGameStatusLabel = (game: GameInfo) => {
+    if (game.is_coming_soon || game.status === 'coming_soon') {
+      return t('launcher.games.coming_soon');
+    }
+
+    switch (game.status) {
+      case 'installed':
+        return t('launcher.games.installed');
+      case 'update_available':
+        return t('launcher.games.update_available');
+      default:
+        return t('launcher.games.available');
+    }
+  };
+
+  const formatBytes = (bytes?: number) => {
+    if (!bytes || bytes <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+    const value = bytes / Math.pow(1024, exponent);
+    return `${value >= 100 ? value.toFixed(0) : value >= 10 ? value.toFixed(1) : value.toFixed(2)} ${units[exponent]}`;
+  };
+
+  const formatSpeed = (bytesPerSecond?: number) => {
+    if (!bytesPerSecond || bytesPerSecond <= 0) return t('launcher.games.speed_idle');
+    return `${formatBytes(bytesPerSecond)}/s`;
+  };
+
+  const getExampleInstallPath = () => {
+    if (!gameBaseDirectory || !selectedGame) {
+      return '';
+    }
+
+    const separator = gameBaseDirectory.includes('\\') ? '\\' : '/';
+    const normalizedBase = gameBaseDirectory.endsWith(separator)
+      ? gameBaseDirectory.slice(0, -1)
+      : gameBaseDirectory;
+
+    return `${normalizedBase}${separator}${selectedGame.id}.v${selectedGame.version}`;
   };
 
   if (isLoading) {
@@ -616,6 +781,22 @@ function App() {
       </div>
     );
   }
+
+  const activeDownload = selectedGame ? downloadProgress[selectedGame.id] : undefined;
+  const activeDownloadPercent = activeDownload ? Math.max(0, Math.min(100, Math.round(activeDownload.progress ?? 0))) : 0;
+  const activeDownloadSummary = activeDownload
+    ? activeDownload.totalBytes
+      ? `${formatBytes(activeDownload.downloadedBytes)} / ${formatBytes(activeDownload.totalBytes)}`
+      : formatBytes(activeDownload.downloadedBytes)
+    : '';
+  const activeDownloadSpeed = activeDownload && activeDownload.status === 'progress'
+    ? formatSpeed(activeDownload.speedBytesPerSecond)
+    : undefined;
+  const activeDownloadStatus = activeDownload
+    ? activeDownload.status === 'extracting'
+      ? t('launcher.games.extracting')
+      : `${activeDownloadPercent}%`
+    : '';
 
   const backgroundStyle = selectedGame
     ? { backgroundImage: `url(${selectedGame.image_url})` }
@@ -838,21 +1019,13 @@ function App() {
                          >
                            {t('launcher.settings.reload_launcher')}
                          </button>
-                         <button 
-                           className="rescan-games-btn"
-                           onClick={async () => {
-                             try {
-                               const scannedGames = await invoke<GameInfo[]>('scan_local_games', { games });
-                               console.log('Manual rescan result:', scannedGames);
-                               setGames(scannedGames);
-                             } catch (err) {
-                               console.error('Manual rescan failed:', err);
-                             }
-                           }}
-                           title="Rescan local game directories"
-                         >
-                           🔍 Rescan Games
-                         </button>
+                        <button
+                          className="rescan-games-btn"
+                          onClick={handleRescanGames}
+                          title={t('launcher.settings.rescan_games')}
+                        >
+                          {t('launcher.settings.rescan_games')}
+                        </button>
                        </div>
                      </>
                    )}
@@ -862,15 +1035,22 @@ function App() {
                         <div className="settings-section">
                           <h4>{t('launcher.settings.game_installation_directory')}</h4>
                           <div className="game-directory-info">
-                            <p>{t('launcher.settings.auto_search_info')} <code>AntChillGame/</code></p>
-                            <p>{t('launcher.settings.full_path')} <code>Ổ đĩa/Folder Launcher/AntChillGame/</code></p>
-                            <p>{t('launcher.settings.example')} <code>AntChillGame/Brato.io.v0.01/</code></p>
+                            <p>
+                              {t('launcher.settings.auto_search_info')}{' '}
+                              <code>{gameBaseDirectory || t('launcher.settings.detecting_directory')}</code>
+                            </p>
+                            {selectedGame && (
+                              <p>
+                                {t('launcher.settings.example')}{' '}
+                                <code>{getExampleInstallPath()}</code>
+                              </p>
+                            )}
                           </div>
-                          
+
                           <div className="game-directory-action">
                             <div className="directory-info">
-                              <span className="directory-path">AntChillGame</span>
-                              <button 
+                              <span className="directory-path">{gameBaseDirectory || t('launcher.settings.detecting_directory')}</span>
+                              <button
                                 className="open-directory-btn"
                                 onClick={() => handleOpenGameDirectory()}
                               >
@@ -921,9 +1101,9 @@ function App() {
               <div className="game-info">
                 <h4>{game.name}</h4>
                 <p>v{game.version}</p>
-                                 <span className={`status ${game.status}`}>
-                   {game.status === 'available' ? t('launcher.games.available') : t('launcher.games.coming_soon')}
-                 </span>
+                <span className={`status ${game.status}`}>
+                  {getGameStatusLabel(game)}
+                </span>
               </div>
             </div>
           ))}
@@ -986,14 +1166,20 @@ function App() {
                           {downloading === selectedGame.id && downloadProgress[selectedGame.id] && (
                             <div className="download-progress">
                               <div className="progress-bar">
-                                <div 
-                                  className="progress-fill" 
-                                  style={{ width: `${downloadProgress[selectedGame.id].progress}%` }}
+                                <div
+                                  className="progress-fill"
+                                  style={{ width: `${activeDownloadPercent}%` }}
                                 ></div>
                               </div>
                               <div className="progress-info">
                                 <span className="progress-text">
-                                  {downloadProgress[selectedGame.id].progress}% - {downloadProgress[selectedGame.id].urlName}
+                                  {activeDownloadStatus} · {activeDownload?.urlName}
+                                </span>
+                                <span className="progress-subtext">
+                                  {activeDownloadSummary}
+                                  {activeDownloadSpeed && (
+                                    <span className="progress-speed">{activeDownloadSpeed}</span>
+                                  )}
                                 </span>
                               </div>
                             </div>
