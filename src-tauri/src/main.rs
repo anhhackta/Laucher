@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, CustomMenuItem, Manager, SystemTray, SystemTrayEvent, SystemTrayMenu};
@@ -434,6 +434,13 @@ async fn download_game_with_progress(
     std::fs::remove_file(&zip_path).map_err(|e| e.to_string())?;
 
     let executable_path = find_executable_in_directory(&games_dir)?;
+    let install_root = executable_path
+        .as_ref()
+        .and_then(|path| {
+            let path_buf = PathBuf::from(path);
+            path_buf.parent().map(|parent| parent.to_path_buf())
+        })
+        .unwrap_or_else(|| games_dir.clone());
 
     emit_status(
         "completed",
@@ -442,15 +449,17 @@ async fn download_game_with_progress(
         total_size,
         0,
         None,
-        Some(games_dir.to_string_lossy().to_string()),
+        Some(install_root.to_string_lossy().to_string()),
         executable_path.clone(),
     );
 
     println!(
-        "Game {} installed successfully to: {:?}",
-        game_id, games_dir
+        "Game {} installed successfully to: {:?} (executable: {:?})",
+        game_id,
+        install_root,
+        executable_path
     );
-    Ok(games_dir.to_string_lossy().to_string())
+    Ok(install_root.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -936,31 +945,95 @@ fn get_game_installation_path() -> Result<String, String> {
     Ok(base_dir.to_string_lossy().to_string())
 }
 
-fn find_executable_in_directory(dir: &std::path::Path) -> Result<Option<String>, String> {
+fn find_executable_in_directory(dir: &Path) -> Result<Option<String>, String> {
     println!("Searching for executables in: {:?}", dir);
 
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let path = entry.path();
-                println!("Checking file: {:?}", path);
-
-                if path.is_file() {
-                    if let Some(extension) = path.extension() {
-                        println!("File extension: {:?}", extension);
-                        if extension == "exe" {
-                            println!("Found executable: {:?}", path);
-                            return Ok(Some(path.to_string_lossy().to_string()));
-                        }
-                    }
-                }
-            }
-        }
-    } else {
-        println!("Failed to read directory: {:?}", dir);
+    if !dir.exists() {
+        println!("Directory does not exist: {:?}", dir);
+        return Ok(None);
     }
 
-    println!("No executables found in directory");
+    let mut queue: VecDeque<PathBuf> = VecDeque::new();
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    queue.push_back(dir.to_path_buf());
+
+    while let Some(current_dir) = queue.pop_front() {
+        let entries = match std::fs::read_dir(&current_dir) {
+            Ok(entries) => entries,
+            Err(err) => {
+                println!(
+                    "Failed to read directory {:?}: {}",
+                    current_dir, err
+                );
+                continue;
+            }
+        };
+
+        for entry in entries {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(err) => {
+                    println!("Failed to inspect entry: {}", err);
+                    continue;
+                }
+            };
+
+            let path = entry.path();
+
+            if path.is_dir() {
+                queue.push_back(path);
+                continue;
+            }
+
+            if path
+                .extension()
+                .map(|ext| ext.eq_ignore_ascii_case("exe"))
+                .unwrap_or(false)
+            {
+                println!("Found executable candidate: {:?}", path);
+                candidates.push(path);
+            }
+        }
+    }
+
+    if candidates.is_empty() {
+        println!("No executables found in directory tree");
+        return Ok(None);
+    }
+
+    candidates.sort_by_key(|path| {
+        let depth = path.components().count() as i32;
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| name.to_ascii_lowercase())
+            .unwrap_or_default();
+
+        let mut score = 0i32;
+
+        if file_name.contains("unins") || file_name.contains("uninstall") {
+            score += 200;
+        }
+
+        if file_name.contains("setup") || file_name.contains("install") {
+            score += 100;
+        }
+
+        if file_name.contains("launcher") || file_name.contains("updater") {
+            score += 80;
+        }
+
+        if file_name.contains("game") || file_name.contains("play") {
+            score -= 25;
+        }
+
+        score + depth * 5
+    });
+
+    if let Some(best) = candidates.first() {
+        println!("Selected executable: {:?}", best);
+        return Ok(Some(best.to_string_lossy().to_string()));
+    }
     Ok(None)
 }
 

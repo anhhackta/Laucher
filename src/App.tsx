@@ -115,6 +115,7 @@ function App() {
   const [activeSettingsTab, setActiveSettingsTab] = useState<'general' | 'game'>('general');
   const [gameBaseDirectory, setGameBaseDirectory] = useState<string>('');
   const [downloadProgress, setDownloadProgress] = useState<Record<string, DownloadProgressState>>({});
+  const [downloadServerSelection, setDownloadServerSelection] = useState<Record<string, string>>({});
   const headerRef = useRef<HTMLDivElement>(null);
 
   const refreshGames = useCallback(async (focusGameId?: string) => {
@@ -223,6 +224,37 @@ function App() {
       });
 
       if (payload.status === 'completed') {
+        setGames((previous) =>
+          previous.map((game) => {
+            if (game.id !== payload.game_id) {
+              return game;
+            }
+
+            const executablePath = payload.executable_path ?? game.executable_path;
+            const status = executablePath ? 'installed' : game.status;
+
+            return {
+              ...game,
+              status,
+              executable_path: executablePath,
+            };
+          })
+        );
+
+        setSelectedGame((previous) => {
+          if (!previous || previous.id !== payload.game_id) {
+            return previous;
+          }
+
+          const executablePath = payload.executable_path ?? previous.executable_path;
+          const status = executablePath ? 'installed' : previous.status;
+
+          return {
+            ...previous,
+            status,
+            executable_path: executablePath,
+          };
+        });
         refreshGames(payload.game_id);
       }
     });
@@ -371,12 +403,26 @@ function App() {
     setDownloading(game.id);
 
     // Try each download URL in order (primary first, then others)
-    const sortedUrls = [...game.download_urls].sort((a, b) => {
+    const defaultOrder = [...game.download_urls].sort((a, b) => {
       if (a.primary && !b.primary) return -1;
       if (!a.primary && b.primary) return 1;
       return 0;
     });
 
+    const preferredName = downloadServerSelection[game.id];
+    const sortedUrls = preferredName
+      ? [
+          ...defaultOrder.filter((url) => url.name === preferredName),
+          ...defaultOrder.filter((url) => url.name !== preferredName),
+        ]
+      : defaultOrder;
+
+    if (!preferredName && sortedUrls.length > 0) {
+      setDownloadServerSelection((previous) => ({
+        ...previous,
+        [game.id]: sortedUrls[0].name,
+      }));
+    }
     let lastError: string = '';
 
     for (let i = 0; i < sortedUrls.length; i++) {
@@ -412,7 +458,7 @@ function App() {
 
         setDownloading(null);
 
-        alert(`✅ ${game.name} downloaded and installed successfully!\n\nSource: ${downloadUrl.name}\n\nYou can now play the game!`);
+        alert(`✅ ${game.name} downloaded and installed successfully!\n\nServer: ${downloadUrl.name}\n\nYou can now play the game!`);
         console.log(`Download successful using ${downloadUrl.name}`);
         return;
 
@@ -659,18 +705,6 @@ function App() {
     }
   };
 
-  const handleOpenGameFolder = async (game: GameInfo) => {
-    if (game.executable_path) {
-      try {
-        // Extract directory path from executable path
-        const dirPath = game.executable_path.substring(0, game.executable_path.lastIndexOf('\\'));
-        await invoke('open_directory', { path: dirPath });
-      } catch (err) {
-        console.error('Failed to open game folder:', err);
-      }
-    }
-  };
-
   const handleOpenGameDirectory = async () => {
     try {
       if (!gameBaseDirectory) {
@@ -687,7 +721,26 @@ function App() {
   const handleGameSelect = (game: GameInfo) => {
     setSelectedGame(game);
     setCurrentBackground(game.background_id);
+    if (game.download_urls && game.download_urls.length > 0) {
+      setDownloadServerSelection((previous) => {
+        if (previous[game.id]) {
+          return previous;
+        }
 
+        const preferred =
+          game.download_urls.find((url) => url.primary)?.name ??
+          game.download_urls[0]?.name;
+
+        if (!preferred) {
+          return previous;
+        }
+
+        return {
+          ...previous,
+          [game.id]: preferred,
+        };
+      });
+    }
     // Apply game-specific theme colors
     const gamePanel = document.querySelector('.game-panel');
     if (gamePanel) {
@@ -801,6 +854,67 @@ function App() {
   const backgroundStyle = selectedGame
     ? { backgroundImage: `url(${selectedGame.image_url})` }
     : {};
+
+  useEffect(() => {
+    if (!selectedGame || !selectedGame.download_urls || selectedGame.download_urls.length === 0) {
+      return;
+    }
+
+    setDownloadServerSelection((previous) => {
+      if (previous[selectedGame.id]) {
+        return previous;
+      }
+
+      const preferred =
+        selectedGame.download_urls.find((url) => url.primary)?.name ??
+        selectedGame.download_urls[0]?.name;
+
+      if (!preferred) {
+        return previous;
+      }
+
+      return {
+        ...previous,
+        [selectedGame.id]: preferred,
+      };
+    });
+  }, [selectedGame]);
+
+  const resolveSocialIcon = (icon: string) => {
+    if (!icon) {
+      return '/social/home.png';
+    }
+
+    if (icon.startsWith('http://') || icon.startsWith('https://')) {
+      return icon;
+    }
+
+    const sanitized = icon.replace(/^src-tauri\//, '/');
+    if (sanitized.startsWith('/')) {
+      return sanitized;
+    }
+
+    return `/social/${sanitized}`;
+  };
+
+  const handleSocialLinkClick = (link: SocialLink) => {
+    if (link.action === 'repair_game') {
+      if (selectedGame && selectedGame.repair_enabled) {
+        handleRepairGame(selectedGame);
+      }
+      return;
+    }
+
+    if (link.url && link.url !== '#') {
+      open(link.url);
+    }
+  };
+
+  const selectedServerName = selectedGame?.download_urls && selectedGame.download_urls.length > 0
+    ? downloadServerSelection[selectedGame.id] ??
+      selectedGame.download_urls.find((url) => url.primary)?.name ??
+      selectedGame.download_urls[0]?.name
+    : undefined;
 
   return (
     <div className={`app ${currentTheme}`} style={backgroundStyle}>
@@ -1124,7 +1238,7 @@ function App() {
                     <>
                       {selectedGame.executable_path ? (
                         <>
-                          <button 
+                          <button
                             className="btn-play"
                             onClick={() => handleLaunchGame(selectedGame)}
                           >
@@ -1149,7 +1263,7 @@ function App() {
                         </>
                       ) : (
                         <div className="download-container">
-                          <button 
+                          <button
                             className="btn-install"
                             onClick={() => handleDownloadGame(selectedGame)}
                             disabled={downloading === selectedGame.id}
@@ -1160,7 +1274,12 @@ function App() {
                                 <span>{t('launcher.games.downloading')}</span>
                               </div>
                             ) : (
-                              t('launcher.games.install')
+                              <div className="download-content">
+                                <span>{t('launcher.games.install')}</span>
+                                {selectedServerName && (
+                                  <span className="download-subtext">{selectedServerName}</span>
+                                )}
+                              </div>
                             )}
                           </button>
                           {downloading === selectedGame.id && downloadProgress[selectedGame.id] && (
@@ -1212,40 +1331,72 @@ function App() {
                   )}
                   
                   {selectedGame.download_urls && selectedGame.download_urls.length > 0 && (
-                    <div className="download-options">
-                      <h4>📥 Download Sources</h4>
-                      <p className="download-description">
-                        Multiple download sources available for faster and more reliable downloads.
-                        The launcher will automatically try each source until one succeeds.
-                      </p>
-                      <div className="download-urls">
-                        {selectedGame.download_urls.map((url, index) => (
-                          <div key={index} className={`download-option ${url.primary ? 'primary' : ''}`}>
-                            <div className="download-info">
-                              <div className="download-header">
-                                <span className="download-name">{url.name}</span>
-                                {url.primary && <span className="primary-badge">PRIMARY</span>}
-                              </div>
-                              <div className="download-details">
-                                <span className="download-size">📦 {url.size}</span>
-                                <span className="download-type">🔗 {url.type}</span>
-                              </div>
-                            </div>
-                            <button 
-                              className="download-btn"
+                    <div className="download-sources">
+                      <div className="download-sources-header">
+                        <div>
+                          <h4>📥 {t('launcher.games.server_section_title')}</h4>
+                          <p className="download-description">
+                            {t('launcher.games.server_section_hint')}
+                          </p>
+                        </div>
+                        {selectedServerName && (
+                          <span className="download-selected">
+                            {t('launcher.games.server_selected', { server: selectedServerName })}
+                          </span>
+                        )}
+                      </div>
+                      <div className="download-server-grid">
+                        {selectedGame.download_urls.map((url) => {
+                          const isSelected = selectedServerName === url.name;
+                          const isDownloadingThisServer =
+                            downloading === selectedGame.id && activeDownload?.urlName === url.name;
+                          const isDisabled = downloading === selectedGame.id && !isDownloadingThisServer;
+
+                          return (
+                            <button
+                              type="button"
+                              key={`${selectedGame.id}-${url.name}`}
+                              className={`server-card ${url.primary ? 'primary' : ''} ${
+                                isSelected ? 'selected' : ''
+                              }`}
                               onClick={() => {
-                                if (url.primary) {
-                                  handleDownloadGame(selectedGame);
-                                } else {
-                                  open(url.url);
+                                if (downloading === selectedGame.id) {
+                                  return;
                                 }
+                                setDownloadServerSelection((previous) => ({
+                                  ...previous,
+                                  [selectedGame.id]: url.name,
+                                }));
                               }}
-                              disabled={downloading === selectedGame.id}
+                              disabled={isDisabled}
                             >
-                              {url.primary ? '🚀 Auto Download' : '🔗 Open Link'}
+                              <div className="server-card-head">
+                                <span className="server-name">{url.name}</span>
+                                <div className="server-badges">
+                                  {url.primary && (
+                                    <span className="server-badge primary-badge">
+                                      {t('launcher.games.server_primary')}
+                                    </span>
+                                  )}
+                                  {isSelected && (
+                                    <span className="server-badge selected-badge">
+                                      {t('launcher.games.server_selected_short')}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="server-card-meta">
+                                <span>📦 {url.size}</span>
+                                <span>🗃 {url.type}</span>
+                              </div>
+                              <div className="server-card-footer">
+                                {isDownloadingThisServer
+                                  ? t('launcher.games.server_in_use')
+                                  : t('launcher.games.server_select_action')}
+                              </div>
                             </button>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -1269,43 +1420,36 @@ function App() {
 
       {/* Social Sidebar */}
       <aside className="social-sidebar">
-        <button
-          className="social-btn"
-          onClick={() => open('https://anhhackta.github.io')}
-          title="Website"
-        >
-          <img src="/social/home.png" alt="Home" />
-        </button>
-        <button
-          className="social-btn"
-          onClick={() => open('https://facebook.com/anhhackta.official')}
-          title="Facebook"
-        >
-          <img src="/social/facebook.png" alt="Facebook" />
-        </button>
-        <button
-          className="social-btn"
-          onClick={() => open('https://discord.gg/3J2nemTtDq')}
-          title="Discord"
-        >
-          <img src="/social/discord.png" alt="Discord" />
-        </button>
-        <button
-          className="social-btn"
-          onClick={() => open('mailto:bahoangcran@gmail.com')}
-          title="Email Support"
-        >
-          <img src="/social/email.png" alt="Email" />
-        </button>
-        {selectedGame && (
-          <button
-            className="social-btn"
-            onClick={() => handleRepairGame(selectedGame)}
-            title="Repair Game Files"
-          >
-            <img src="/social/repair.png" alt="Repair" />
-          </button>
-        )}
+        <div className="social-card">
+          <span className="social-title">{t('launcher.social.connect')}</span>
+          <div className="social-actions">
+            {socialLinks
+              .filter((link) => link.active)
+              .map((link) => {
+                const isRepairAction = link.action === 'repair_game';
+                const isDisabled =
+                  isRepairAction && (!selectedGame || !selectedGame.repair_enabled);
+
+                return (
+                  <button
+                    key={link.id}
+                    type="button"
+                    className={`social-btn ${isDisabled ? 'disabled' : ''}`}
+                    onClick={() => {
+                      if (isDisabled) {
+                        return;
+                      }
+                      handleSocialLinkClick(link);
+                    }}
+                    title={link.tooltip}
+                    disabled={isDisabled}
+                  >
+                    <img src={resolveSocialIcon(link.icon)} alt={link.tooltip || link.id} />
+                  </button>
+                );
+              })}
+          </div>
+        </div>
       </aside>
     </div>
   );
