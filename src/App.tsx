@@ -30,21 +30,7 @@ interface UpdateInfo {
   changelog?: string;
 }
 
-interface Background {
-  id: string;
-  name: string;
-  image_url: string;
-  active: boolean;
-}
 
-interface SocialLink {
-  id: string;
-  icon: string;
-  url: string;
-  tooltip: string;
-  active: boolean;
-  action?: string;
-}
 
 interface RepairResult {
   success: boolean;
@@ -66,17 +52,12 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [minimizeToTray, setMinimizeToTray] = useState(false);
   const [currentTheme, setCurrentTheme] = useState<'light' | 'dark'>('light');
-  const [backgrounds, setBackgrounds] = useState<Background[]>([]);
-  const [socialLinks, setSocialLinks] = useState<SocialLink[]>([]);
-  const [currentBackground, setCurrentBackground] = useState<string>('');
-  const [networkStatus, setNetworkStatus] = useState<NetworkStatus>({ is_online: true, message: '' });
   const [startupWithWindows, setStartupWithWindows] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
   const [lastOnlineCheck, setLastOnlineCheck] = useState<Date>(new Date());
   const [activeSettingsTab, setActiveSettingsTab] = useState<'general' | 'game'>('general');
-  const [gameBaseDirectory, setGameBaseDirectory] = useState('C:\\Games\\AntChillGame');
   const headerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -136,18 +117,13 @@ function App() {
     const checkConnectionInterval = setInterval(async () => {
       try {
         const result = await invoke<NetworkStatus>('check_network_status');
-        setNetworkStatus(result);
-        
         if (result.is_online && isOfflineMode) {
           // Chuyển từ offline về online
           setIsOfflineMode(false);
           setError(null);
-          // Reload games và social links khi có kết nối trở lại
+          // Reload games khi có kết nối trở lại
           const gamesResult = await invoke<GameInfo[]>('get_games');
           setGames(gamesResult);
-          
-          const socialLinksResult = await invoke<SocialLink[]>('get_social_links');
-          setSocialLinks(socialLinksResult);
         } else if (!result.is_online && !isOfflineMode) {
           // Chuyển sang offline mode
           setIsOfflineMode(true);
@@ -172,7 +148,6 @@ function App() {
       
       // Check network status
       const networkResult = await invoke<NetworkStatus>('check_network_status');
-      setNetworkStatus(networkResult);
       
       if (!networkResult.is_online) {
         // Chuyển sang offline mode
@@ -182,14 +157,6 @@ function App() {
         // Load offline games data
         const offlineGames = await invoke<GameInfo[]>('get_offline_games');
         setGames(offlineGames);
-        
-        // Load offline social links
-        const offlineSocialLinks = await invoke<SocialLink[]>('get_social_links');
-        setSocialLinks(offlineSocialLinks);
-        
-        if (offlineGames.length > 0) {
-          setCurrentBackground(offlineGames[0].background_id);
-        }
         
         setIsLoading(false);
         return;
@@ -209,14 +176,6 @@ function App() {
         setGames(gamesResult);
       }
       
-      // Load social links from manifest
-      const socialLinksResult = await invoke<SocialLink[]>('get_social_links');
-      setSocialLinks(socialLinksResult);
-      
-      // Set default background
-      if (gamesResult.length > 0) {
-        setCurrentBackground(gamesResult[0].background_id);
-      }
 
       // Load startup status
       const startupResult = await invoke<boolean>('get_startup_status');
@@ -233,12 +192,6 @@ function App() {
         const offlineGames = await invoke<GameInfo[]>('get_offline_games');
         setGames(offlineGames);
         
-        const offlineSocialLinks = await invoke<SocialLink[]>('get_social_links');
-        setSocialLinks(offlineSocialLinks);
-        
-        if (offlineGames.length > 0) {
-          setCurrentBackground(offlineGames[0].background_id);
-        }
       } catch (offlineErr) {
         console.error('Failed to load offline data:', offlineErr);
       }
@@ -344,13 +297,6 @@ function App() {
     }
   };
 
-  const handleSocialLink = (link: SocialLink) => {
-    if (link.action === 'repair' && selectedGame) {
-      handleRepairGame(selectedGame);
-    } else if (link.url) {
-      open(link.url);
-    }
-  };
 
   const handleMinimize = async () => {
     try {
@@ -415,66 +361,10 @@ function App() {
     }
   };
 
-  const handleBrowseGameDirectory = async () => {
-    try {
-      const result = await invoke<string>('select_directory');
-      if (result) {
-        setGameBaseDirectory(result);
-      }
-    } catch (err) {
-      console.error('Failed to select directory:', err);
-    }
-  };
 
-  const handleChangeGamePath = async (game: GameInfo) => {
-    try {
-      const result = await invoke<string>('select_directory');
-      if (result) {
-        // Update game path logic here
-        console.log(`Changing path for ${game.name} to: ${result}`);
-      }
-    } catch (err) {
-      console.error('Failed to change game path:', err);
-    }
-  };
 
-  const handleLocateGame = async (game: GameInfo) => {
-    try {
-      const result = await invoke<string>('select_file', { 
-        title: `Select ${game.name} executable`,
-        filters: [{ name: 'Executable', extensions: ['exe'] }]
-      });
-      if (result) {
-        // Update game executable path logic here
-        console.log(`Located ${game.name} at: ${result}`);
-      }
-    } catch (err) {
-      console.error('Failed to locate game:', err);
-    }
-  };
 
-  const handleRescanGames = async () => {
-    try {
-      // Trigger automatic game scan
-      const updatedGames = await invoke<GameInfo[]>('scan_games');
-      setGames(updatedGames);
-      console.log('Games rescanned successfully');
-    } catch (err) {
-      console.error('Failed to rescan games:', err);
-    }
-  };
 
-  const handleOpenGameFolder = async (game: GameInfo) => {
-    if (game.executable_path) {
-      try {
-        // Extract directory path from executable path
-        const dirPath = game.executable_path.substring(0, game.executable_path.lastIndexOf('\\'));
-        await invoke('open_directory', { path: dirPath });
-      } catch (err) {
-        console.error('Failed to open game folder:', err);
-      }
-    }
-  };
 
   const handleOpenGameDirectory = async () => {
     try {
@@ -487,7 +377,6 @@ function App() {
 
   const handleGameSelect = (game: GameInfo) => {
     setSelectedGame(game);
-    setCurrentBackground(game.background_id);
     
     // Apply game-specific theme colors
     const gamePanel = document.querySelector('.game-panel');
@@ -577,7 +466,6 @@ function App() {
            className="logo"
            onClick={() => {
              setSelectedGame(null);
-             setCurrentBackground('');
            }}
            style={{ cursor: 'pointer' }}
          >
@@ -588,7 +476,6 @@ function App() {
              onClick={(e) => {
                e.stopPropagation();
                setSelectedGame(null);
-               setCurrentBackground('');
              }}
              style={{ cursor: 'pointer' }}
            />
