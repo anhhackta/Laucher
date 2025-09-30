@@ -1,7 +1,6 @@
 {
   "manifest_version": "1.0",
   "last_updated": "2025-01-20T10:00:00Z",
-  
   "launcher_config": {
     "current_version": "1.0.0",
     "update_url": "https://pub-72a5a57231ae489cb74409bdc120cb93.r2.dev/launcher/GameLauncher_v1.0.1.exe",
@@ -9,7 +8,6 @@
     "auto_check_updates": true,
     "check_interval_hours": 24
   },
-
   "backgrounds": {
     "broto_bg": {
       "id": "broto_bg",
@@ -18,13 +16,12 @@
       "active": true
     },
     "antknow_bg": {
-      "id": "antknow_bg", 
+      "id": "antknow_bg",
       "name": "AntKnow Background",
       "image_url": "https://files.catbox.moe/6f2nc5.png",
       "active": true
     }
   },
-
   "games": [
     {
       "id": "broto",
@@ -68,7 +65,7 @@
     },
     {
       "id": "antknow",
-      "name": "AntKnow", 
+      "name": "AntKnow",
       "version": "1.0",
       "status": "coming_soon",
       "download_url": null,
@@ -84,7 +81,6 @@
       "repair_enabled": false
     }
   ],
-
   "social_links": [
     {
       "id": "home",
@@ -123,7 +119,6 @@
       "action": "repair_game"
     }
   ],
-
   "settings": {
     "startup_with_windows": true,
     "minimize_to_tray": true,

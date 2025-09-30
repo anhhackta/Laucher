@@ -1,47 +1,69 @@
 {
   "launcher": {
     "title": "AntChill Launcher",
-    "loading": "Đang khởi động AntChill Launcher…",
-    "actions": {
-      "refresh": "Làm mới danh sách game",
-      "retry": "Thử lại"
-    },
-    "errors": {
-      "load_manifest": "Không thể tải manifest. Vui lòng kiểm tra kết nối và thử lại.",
-      "download_start": "Không thể bắt đầu tải xuống. Vui lòng chọn máy chủ khác.",
-      "download_failed": "Tải xuống thất bại. Vui lòng thử lại.",
-      "launch": "Không thể khởi chạy trò chơi. Hãy kiểm tra lại cài đặt."
+    "loading": "Đang tải AntChill Launcher bởi BaHoang...",
+    "welcome": {
+      "title": "AntChill"
     },
     "games": {
-      "title": "Trò chơi",
-      "available": "Có thể tải",
+      "title": "Games",
+      "available": "Có sẵn",
       "coming_soon": "Sắp ra mắt",
       "installed": "Đã cài đặt",
       "update_available": "Có bản cập nhật",
-
-      "downloading": "Đang tải…",
-      "play": "Chơi",
-      "update": "Cập nhật",
-      "install": "Cài đặt",
-      "extracting": "Đang giải nén…",
-      "select_download": "Chọn máy chủ tải",
-      "no_downloads": "Hiện không có nguồn tải cho trò chơi này.",
-      "ready": "Đã cài tại",
-      "details": {
-        "version": "Phiên bản",
-        "size": "Dung lượng",
-        "release": "Ngày phát hành"
-      }
-n
+      "play": "▶️ Chơi",
+      "install": "📥 Cài đặt",
+      "downloading": "⏳ Đang tải...",
+      "extracting": "📦 Đang giải nén...",
+      "speed_idle": "Đang chờ...",
+      "update_package": "Gói cập nhật",
+      "check_updates": "🔄 Kiểm tra cập nhật",
+      "repair": "🔧 Sửa chữa",
+      "coming_soon_btn": "🕐 Sắp ra mắt",
+      "server_section_title": "Máy chủ tải xuống",
+      "server_section_hint": "Chọn máy chủ ưu tiên. Launcher sẽ tự chuyển sang máy chủ khác nếu tải thất bại.",
+      "server_selected": "Đang chọn: {{server}}",
+      "server_selected_short": "Đang chọn",
+      "server_primary": "Ưu tiên",
+      "server_select_action": "Bấm để sử dụng máy chủ này",
+      "server_in_use": "Đang tải..."
     },
-    "empty": {
-      "title": "Chọn một trò chơi",
-      "subtitle": "Hãy chọn trò chơi bên danh sách để xem chi tiết và quản lý cài đặt."
+    "settings": {
+      "title": "Cài đặt",
+      "general": "Chung",
+      "game": "Game",
+      "version": "Phiên bản: 1.0.0",
+      "language": "Ngôn ngữ",
+      "close_window": "Đóng cửa sổ",
+      "startup_behavior": "Hành vi khởi động",
+      "theme": "Giao diện",
+      "minimize_to_tray": "Thu nhỏ vào khay hệ thống",
+      "exit_launcher": "Thoát Launcher",
+      "run_on_startup": "Chạy AntChill Launcher khi khởi động",
+      "theme_light": "Sáng",
+      "theme_dark": "Tối",
+      "reload_launcher": "🔄 Tải lại Launcher",
+      "close": "Đóng",
+      "game_installation_directory": "Thư mục cài đặt Game",
+      "auto_search_info": "Launcher tự động tìm kiếm game trong:",
+      "full_path": "Đường dẫn đầy đủ:",
+      "example": "Ví dụ:",
+      "open_folder": "Mở thư mục",
+      "rescan_games": "🔍 Quét lại game",
+      "detecting_directory": "Đang xác định..."
+    },
+    "status": {
+      "offline_mode": "Chế độ Offline",
+      "tray_mode": "Chế độ Khay",
+      "last_check": "Kiểm tra cuối:"
+    },
+    "errors": {
+      "connection_error": "Lỗi kết nối",
+      "retry_connection": "🔄 Thử kết nối lại"
     }
   },
   "social": {
-
-    "connect": "Kết nối cùng AntChill"
-
+    "connect": "Kết nối với chúng tôi"
   }
 }
+
