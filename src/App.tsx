@@ -1,7 +1,9 @@
+
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { listen } from '@tauri-apps/api/event';
 import type { UnlistenFn } from '@tauri-apps/api/event';
+
 import { open } from '@tauri-apps/api/shell';
 import { useLanguage } from './hooks/useLanguage';
 import './App.css';
@@ -103,6 +105,7 @@ const formatBytes = (value?: number) => {
     unitIndex += 1;
   }
 
+
   return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 };
 
@@ -133,6 +136,7 @@ const resolveIcon = (icon: string) => {
 
 const App: React.FC = () => {
   const { t } = useLanguage();
+
   const [games, setGames] = useState<GameInfo[]>([]);
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
   const [downloads, setDownloads] = useState<Record<string, DownloadState>>({});
@@ -142,11 +146,14 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [socialLinks, setSocialLinks] = useState<SocialLink[]>([]);
 
+
   const loadGames = useCallback(
     async ({ focusGameId, showSpinner }: LoadGamesOptions = {}) => {
       if (showSpinner) {
         setLoading(true);
+
       }
+
 
       try {
         setErrorKey(null);
@@ -161,6 +168,7 @@ const App: React.FC = () => {
 
         setGames(mergedGames);
 
+
         setSelectedGameId((previous) => {
           if (focusGameId && mergedGames.some((game) => game.id === focusGameId)) {
             return focusGameId;
@@ -170,12 +178,14 @@ const App: React.FC = () => {
             return previous;
           }
 
+
           return mergedGames.length > 0 ? mergedGames[0].id : null;
         });
 
         setServerSelection((previous) => {
           const updated = { ...previous };
           let changed = false;
+
 
           mergedGames.forEach((game) => {
             if (!updated[game.id] && game.download_urls && game.download_urls.length > 0) {
@@ -205,6 +215,7 @@ const App: React.FC = () => {
     [],
   );
 
+
   const loadSocialLinks = useCallback(async () => {
     try {
       const links = await invoke<SocialLink[]>('get_social_links');
@@ -213,6 +224,7 @@ const App: React.FC = () => {
       console.warn('Failed to load social links', err);
     }
   }, []);
+
 
   useEffect(() => {
     void loadGames({ showSpinner: true });
@@ -257,7 +269,9 @@ const App: React.FC = () => {
           if (!payload.executable_path) {
             void loadGames({ focusGameId: payload.game_id });
           }
+
         }
+
 
         if (payload.status === 'error') {
           setBusyGameId(null);
@@ -275,6 +289,7 @@ const App: React.FC = () => {
         }
       });
     };
+
 
     void attachListener();
 
@@ -414,6 +429,7 @@ const App: React.FC = () => {
       return;
     }
 
+
     setErrorKey(null);
     void invoke('launch_game', { executablePath: game.executable_path }).catch((err) => {
       console.error('Failed to launch game', err);
@@ -441,6 +457,68 @@ const App: React.FC = () => {
     return key ? t(key) : status;
   };
 
+
+  useEffect(() => {
+    if (!selectedGame || !selectedGame.download_urls || selectedGame.download_urls.length === 0) {
+      return;
+    }
+
+    setDownloadServerSelection((previous) => {
+      if (previous[selectedGame.id]) {
+        return previous;
+      }
+
+      const preferred =
+        selectedGame.download_urls.find((url) => url.primary)?.name ??
+        selectedGame.download_urls[0]?.name;
+
+      if (!preferred) {
+        return previous;
+      }
+
+      return {
+        ...previous,
+        [selectedGame.id]: preferred,
+      };
+    });
+  }, [selectedGame]);
+
+  const resolveSocialIcon = (icon: string) => {
+    if (!icon) {
+      return '/social/home.png';
+    }
+
+    if (icon.startsWith('http://') || icon.startsWith('https://')) {
+      return icon;
+    }
+
+    const sanitized = icon.replace(/^src-tauri\//, '/');
+    if (sanitized.startsWith('/')) {
+      return sanitized;
+    }
+
+    return `/social/${sanitized}`;
+  };
+
+  const handleSocialLinkClick = (link: SocialLink) => {
+    if (link.action === 'repair_game') {
+      if (selectedGame && selectedGame.repair_enabled) {
+        handleRepairGame(selectedGame);
+      }
+      return;
+    }
+
+    if (link.url && link.url !== '#') {
+      open(link.url);
+    }
+  };
+
+  const selectedServerName = selectedGame?.download_urls && selectedGame.download_urls.length > 0
+    ? downloadServerSelection[selectedGame.id] ??
+      selectedGame.download_urls.find((url) => url.primary)?.name ??
+      selectedGame.download_urls[0]?.name
+    : undefined;
+
   return (
     <div className="app">
       {loading && (
@@ -463,6 +541,7 @@ const App: React.FC = () => {
           </div>
         </div>
 
+
         <ul className="game-list">
           {games.map((game) => (
             <li key={game.id}>
@@ -476,6 +555,7 @@ const App: React.FC = () => {
                 <span className={`status-pill ${game.status}`}>{getStatusLabel(game.status)}</span>
               </button>
             </li>
+
           ))}
         </ul>
 
@@ -503,6 +583,7 @@ const App: React.FC = () => {
         )}
       </aside>
 
+
       <main className="content">
         {errorKey && (
           <div className="error-banner">
@@ -512,6 +593,7 @@ const App: React.FC = () => {
             </button>
           </div>
         )}
+
 
         {selectedGame ? (
           <>
@@ -565,6 +647,7 @@ const App: React.FC = () => {
                   )}
 
                   {selectedGame.download_urls && selectedGame.download_urls.length > 0 && (
+
                     <div className="server-select">
                       <label htmlFor="server-select">{t('launcher.games.select_download')}</label>
                       <div className="select-wrapper">
@@ -580,6 +663,7 @@ const App: React.FC = () => {
                             </option>
                           ))}
                         </select>
+
                       </div>
                     </div>
                   )}
@@ -591,6 +675,7 @@ const App: React.FC = () => {
                   </span>
                 )}
               </div>
+
 
               {activeDownload && (
                 <div className={`progress-card ${activeDownload.status}`}>
@@ -631,6 +716,7 @@ const App: React.FC = () => {
           </div>
         )}
       </main>
+
     </div>
   );
 };

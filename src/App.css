@@ -1,8 +1,10 @@
+
 :root {
   color-scheme: dark;
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background-color: #05070d;
   color: #f5f7ff;
+
 }
 
 *, *::before, *::after {
@@ -133,6 +135,7 @@ body {
   margin: 0;
   display: flex;
   flex-direction: column;
+
   gap: 0.6rem;
   flex: 1;
   overflow-y: auto;
@@ -142,6 +145,7 @@ body {
 
 .game-list::-webkit-scrollbar {
   width: 6px;
+
 }
 
 .game-list::-webkit-scrollbar-thumb {
@@ -317,9 +321,11 @@ body {
 }
 
 .action-buttons {
+
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+
   gap: 1rem;
 }
 
@@ -370,6 +376,7 @@ body {
   color: #ffffff;
   border-color: rgba(244, 247, 255, 0.45);
   background: rgba(244, 247, 255, 0.08);
+
 }
 
 .server-select {
@@ -390,6 +397,7 @@ body {
   position: absolute;
   right: 0.8rem;
   top: 50%;
+
   transform: translateY(-50%);
   pointer-events: none;
   color: rgba(244, 247, 255, 0.65);
@@ -409,6 +417,7 @@ select {
 
 select:disabled {
   opacity: 0.6;
+
 }
 
 .install-path {

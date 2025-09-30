@@ -18,6 +18,7 @@
       "coming_soon": "Sắp ra mắt",
       "installed": "Đã cài đặt",
       "update_available": "Có bản cập nhật",
+
       "downloading": "Đang tải…",
       "play": "Chơi",
       "update": "Cập nhật",
@@ -31,6 +32,7 @@
         "size": "Dung lượng",
         "release": "Ngày phát hành"
       }
+n
     },
     "empty": {
       "title": "Chọn một trò chơi",
@@ -38,6 +40,8 @@
     }
   },
   "social": {
+
     "connect": "Kết nối cùng AntChill"
+
   }
 }
