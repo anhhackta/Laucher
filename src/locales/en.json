@@ -1,9 +1,16 @@
 {
   "launcher": {
     "title": "AntChill Launcher",
-    "loading": "Loading AntChill Launcher by BaHoang...",
-    "welcome": {
-      "title": "AntChill"
+    "loading": "Loading AntChill Launcher…",
+    "actions": {
+      "refresh": "Refresh games",
+      "retry": "Retry"
+    },
+    "errors": {
+      "load_manifest": "Unable to load the manifest. Check your connection and try again.",
+      "download_start": "Unable to start the download. Please try another server.",
+      "download_failed": "Download failed. Please try again.",
+      "launch": "Unable to launch the game. Please check the installation."
     },
     "games": {
       "title": "Games",
@@ -11,59 +18,26 @@
       "coming_soon": "Coming Soon",
       "installed": "Installed",
       "update_available": "Update Available",
-      "play": "▶️ Play",
-      "install": "📥 Install",
-      "downloading": "⏳ Downloading...",
-      "extracting": "📦 Extracting files...",
-      "speed_idle": "Waiting...",
-      "update_package": "Launcher Update",
-      "check_updates": "🔄 Check Updates",
-      "repair": "🔧 Repair",
-      "coming_soon_btn": "🕐 Coming Soon",
-      "server_section_title": "Download servers",
-      "server_section_hint": "Choose your preferred server. The launcher will automatically fall back if a download fails.",
-      "server_selected": "Selected: {{server}}",
-      "server_selected_short": "Selected",
-      "server_primary": "Primary",
-      "server_select_action": "Click to use this server",
-      "server_in_use": "Downloading..."
+      "downloading": "Downloading…",
+      "play": "Play",
+      "update": "Update",
+      "install": "Install",
+      "extracting": "Extracting files…",
+      "select_download": "Download source",
+      "no_downloads": "No download sources available for this game.",
+      "ready": "Installed at",
+      "details": {
+        "version": "Version",
+        "size": "Size",
+        "release": "Release date"
+      }
     },
-    "settings": {
-      "title": "Settings",
-      "general": "General",
-      "game": "Game",
-      "version": "Version: 1.0.0",
-      "language": "Language",
-      "close_window": "Close Window",
-      "startup_behavior": "Startup Behavior",
-      "theme": "Theme",
-      "minimize_to_tray": "Minimize to system tray",
-      "exit_launcher": "Exit Launcher",
-      "run_on_startup": "Run AntChill Launcher on startup",
-      "theme_light": "Light",
-      "theme_dark": "Dark",
-      "reload_launcher": "🔄 Reload Launcher",
-      "close": "Close",
-      "game_installation_directory": "Game Installation Directory",
-      "auto_search_info": "Launcher automatically searches for games in:",
-      "full_path": "Full path:",
-      "example": "Example:",
-      "open_folder": "Open Folder",
-      "rescan_games": "🔍 Rescan Games",
-      "detecting_directory": "Detecting..."
-    },
-    "status": {
-      "offline_mode": "Offline Mode",
-      "tray_mode": "Tray Mode",
-      "last_check": "Last check:"
-    },
-    "errors": {
-      "connection_error": "Connection Error",
-      "retry_connection": "🔄 Retry Connection"
+    "empty": {
+      "title": "Choose a game",
+      "subtitle": "Select a title from the list to view details and manage the installation."
     }
   },
   "social": {
     "connect": "Stay connected"
   }
 }
-

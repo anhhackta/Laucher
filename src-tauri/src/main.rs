@@ -524,6 +524,7 @@ async fn get_games() -> Result<Vec<GameInfo>, String> {
         return Ok(local_manifest.games);
     }
 
+
     // Final fallback to hardcoded data
     get_offline_games().await
 }
