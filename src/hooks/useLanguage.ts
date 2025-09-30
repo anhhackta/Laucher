@@ -19,9 +19,14 @@ const translations: Record<Language, Translations> = {
         "title": "Games",
         "available": "Available",
         "coming_soon": "Coming Soon",
+        "installed": "Installed",
+        "update_available": "Update Available",
         "play": "▶️ Play",
         "install": "📥 Install",
         "downloading": "⏳ Downloading...",
+        "extracting": "📦 Extracting files...",
+        "speed_idle": "Waiting...",
+        "update_package": "Launcher Update",
         "check_updates": "🔄 Check Updates",
         "repair": "🔧 Repair",
         "coming_soon_btn": "🕐 Coming Soon"
@@ -46,7 +51,9 @@ const translations: Record<Language, Translations> = {
         "auto_search_info": "Launcher automatically searches for games in:",
         "full_path": "Full path:",
         "example": "Example:",
-        "open_folder": "Open Folder"
+        "open_folder": "Open Folder",
+        "rescan_games": "🔍 Rescan Games",
+        "detecting_directory": "Detecting..."
       },
       "status": {
         "offline_mode": "Offline Mode",
@@ -70,9 +77,14 @@ const translations: Record<Language, Translations> = {
         "title": "Games",
         "available": "Có sẵn",
         "coming_soon": "Sắp ra mắt",
+        "installed": "Đã cài đặt",
+        "update_available": "Có bản cập nhật",
         "play": "▶️ Chơi",
         "install": "📥 Cài đặt",
         "downloading": "⏳ Đang tải...",
+        "extracting": "📦 Đang giải nén...",
+        "speed_idle": "Đang chờ...",
+        "update_package": "Gói cập nhật",
         "check_updates": "🔄 Kiểm tra cập nhật",
         "repair": "🔧 Sửa chữa",
         "coming_soon_btn": "🕐 Sắp ra mắt"
@@ -97,7 +109,9 @@ const translations: Record<Language, Translations> = {
         "auto_search_info": "Launcher tự động tìm kiếm game trong:",
         "full_path": "Đường dẫn đầy đủ:",
         "example": "Ví dụ:",
-        "open_folder": "Mở thư mục"
+        "open_folder": "Mở thư mục",
+        "rescan_games": "🔍 Quét lại game",
+        "detecting_directory": "Đang xác định..."
       },
       "status": {
         "offline_mode": "Chế độ Offline",

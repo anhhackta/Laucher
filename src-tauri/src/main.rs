@@ -1,88 +1,88 @@
-use std::path::PathBuf;
-use std::process::Command;
-use std::fs;
-use std::io::Write;
-use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{CustomMenuItem, SystemTray, SystemTrayMenu, SystemTrayEvent, Manager, AppHandle};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
+use std::io::Write;
+use std::path::PathBuf;
+use std::process::Command;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tauri::{AppHandle, CustomMenuItem, Manager, SystemTray, SystemTrayEvent, SystemTrayMenu};
 use winreg::enums::*;
 use winreg::RegKey;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct DownloadUrl {
-  name: String,
-  url: String,
-  r#type: String,
-  size: String,
-  primary: bool,
+    name: String,
+    url: String,
+    r#type: String,
+    size: String,
+    primary: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct GameInfo {
-  id: String,
-  name: String,
-  version: String,
-  status: String,
-  download_url: Option<String>,
-  download_urls: Option<Vec<DownloadUrl>>,
-  executable_path: Option<String>,
-  image_url: String,
-  logo_url: Option<String>,
-  background_id: String,
-  description: String,
-  file_size: Option<String>,
-  release_date: Option<String>,
-  changelog: Option<String>,
-  is_coming_soon: bool,
-  repair_enabled: bool,
+    id: String,
+    name: String,
+    version: String,
+    status: String,
+    download_url: Option<String>,
+    download_urls: Option<Vec<DownloadUrl>>,
+    executable_path: Option<String>,
+    image_url: String,
+    logo_url: Option<String>,
+    background_id: String,
+    description: String,
+    file_size: Option<String>,
+    release_date: Option<String>,
+    changelog: Option<String>,
+    is_coming_soon: bool,
+    repair_enabled: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct GameManifest {
-  manifest_version: String,
-  last_updated: String,
-  launcher_config: LauncherConfig,
-  backgrounds: HashMap<String, Background>,
-  games: Vec<GameInfo>,
-  social_links: Vec<SocialLink>,
-  settings: ManifestSettings,
+    manifest_version: String,
+    last_updated: String,
+    launcher_config: LauncherConfig,
+    backgrounds: HashMap<String, Background>,
+    games: Vec<GameInfo>,
+    social_links: Vec<SocialLink>,
+    settings: ManifestSettings,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct LauncherConfig {
-  current_version: String,
-  update_url: String,
-  changelog: String,
-  auto_check_updates: bool,
-  check_interval_hours: i32,
+    current_version: String,
+    update_url: String,
+    changelog: String,
+    auto_check_updates: bool,
+    check_interval_hours: i32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct Background {
-  id: String,
-  name: String,
-  image_url: String,
-  active: bool,
+    id: String,
+    name: String,
+    image_url: String,
+    active: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct SocialLink {
-  id: String,
-  icon: String,
-  url: String,
-  tooltip: String,
-  active: bool,
-  action: Option<String>,
+    id: String,
+    icon: String,
+    url: String,
+    tooltip: String,
+    active: bool,
+    action: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct ManifestSettings {
-  startup_with_windows: bool,
-  minimize_to_tray: bool,
-  auto_check_updates: bool,
-  download_path: String,
-  max_backups: i32,
+    startup_with_windows: bool,
+    minimize_to_tray: bool,
+    auto_check_updates: bool,
+    download_path: String,
+    max_backups: i32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -104,71 +104,99 @@ struct RepairResult {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct NetworkStatus {
-  is_online: bool,
-  message: String,
+    is_online: bool,
+    message: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct LocalManifest {
-  manifest: GameManifest,
-  last_updated: u64,
-  is_offline: bool,
+    manifest: GameManifest,
+    last_updated: u64,
+    is_offline: bool,
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct DownloadProgressPayload {
+    game_id: String,
+    url_name: String,
+    status: String,
+    progress: Option<f64>,
+    downloaded_bytes: u64,
+    total_bytes: Option<u64>,
+    speed_bytes_per_second: u64,
+    message: Option<String>,
+    install_dir: Option<String>,
+    executable_path: Option<String>,
 }
 
 // Global variable to store local manifest
 static mut LOCAL_MANIFEST: Option<LocalManifest> = None;
 
+const GAME_DIRECTORY_NAME: &str = "games";
+
 // Check network connectivity
 async fn check_network() -> bool {
-  match reqwest::get("https://httpbin.org/get").await {
-    Ok(response) => response.status().is_success(),
-    Err(_) => false,
-  }
+    match reqwest::get("https://httpbin.org/get").await {
+        Ok(response) => response.status().is_success(),
+        Err(_) => false,
+    }
 }
 
 // Save manifest to local storage
 fn save_local_manifest(manifest: &GameManifest) -> Result<(), String> {
-  let current_time = SystemTime::now()
-    .duration_since(UNIX_EPOCH)
-    .map_err(|e| e.to_string())?
-    .as_secs();
-  
-  let local_manifest = LocalManifest {
-    manifest: manifest.clone(),
-    last_updated: current_time,
-    is_offline: false,
-  };
-  
-  // Save to file for persistence
-  let app_dir = tauri::api::path::app_dir(&tauri::Config::default())
-    .ok_or("Failed to get app directory")?;
-  let manifest_path = app_dir.join("local_manifest.json");
-  
-  let manifest_json = serde_json::to_string_pretty(&local_manifest)
-    .map_err(|e| e.to_string())?;
-  
-  fs::write(manifest_path, manifest_json)
-    .map_err(|e| e.to_string())?;
-  
-  unsafe {
-    LOCAL_MANIFEST = Some(local_manifest);
-  }
-  
-  Ok(())
+    let current_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_secs();
+
+    let local_manifest = LocalManifest {
+        manifest: manifest.clone(),
+        last_updated: current_time,
+        is_offline: false,
+    };
+
+    // Save to file for persistence
+    let app_dir = tauri::api::path::app_dir(&tauri::Config::default())
+        .ok_or("Failed to get app directory")?;
+    let manifest_path = app_dir.join("local_manifest.json");
+
+    let manifest_json = serde_json::to_string_pretty(&local_manifest).map_err(|e| e.to_string())?;
+
+    fs::write(manifest_path, manifest_json).map_err(|e| e.to_string())?;
+
+    unsafe {
+        LOCAL_MANIFEST = Some(local_manifest);
+    }
+
+    Ok(())
 }
 
 // Load manifest from local storage
 fn load_local_manifest() -> Option<GameManifest> {
-  unsafe {
-    LOCAL_MANIFEST.as_ref().map(|lm| lm.manifest.clone())
-  }
+    unsafe { LOCAL_MANIFEST.as_ref().map(|lm| lm.manifest.clone()) }
+}
+
+fn get_launcher_directory() -> Result<PathBuf, String> {
+    std::env::current_exe()
+        .map_err(|e| format!("Failed to get launcher path: {}", e))?
+        .parent()
+        .ok_or_else(|| "Failed to get launcher directory".to_string())
+        .map(|path| path.to_path_buf())
+}
+
+fn get_game_base_directory() -> Result<PathBuf, String> {
+    let launcher_dir = get_launcher_directory()?;
+    let game_base_dir = launcher_dir.join(GAME_DIRECTORY_NAME);
+    std::fs::create_dir_all(&game_base_dir)
+        .map_err(|e| format!("Failed to create games directory: {}", e))?;
+    Ok(game_base_dir)
 }
 
 // Get manifest file path
 fn get_manifest_path() -> Result<PathBuf, String> {
-  let app_dir = tauri::api::path::app_dir(&tauri::Config::default())
-    .ok_or("Failed to get app directory")?;
-  Ok(app_dir.join("local_manifest.json"))
+    let app_dir = tauri::api::path::app_dir(&tauri::Config::default())
+        .ok_or("Failed to get app directory")?;
+    Ok(app_dir.join("local_manifest.json"))
 }
 
 // Set startup with Windows
@@ -214,74 +242,182 @@ fn is_startup_with_windows() -> Result<bool, String> {
 }
 
 #[tauri::command]
-async fn download_game(game_id: String, download_url: String) -> Result<String, String> {
-    download_game_with_progress(game_id, download_url, "Unknown".to_string(), None).await
+async fn download_game(
+    app_handle: tauri::AppHandle,
+    game_id: String,
+    download_url: String,
+) -> Result<String, String> {
+    download_game_with_progress(
+        app_handle,
+        game_id,
+        download_url,
+        "Unknown".to_string(),
+        None,
+    )
+    .await
 }
 
 #[tauri::command]
-async fn download_game_with_progress(game_id: String, download_url: String, url_name: String, version: Option<String>) -> Result<String, String> {
-    // Get launcher directory (where the .exe is located)
-    let launcher_dir = std::env::current_exe()
-        .map_err(|e| format!("Failed to get launcher path: {}", e))?
-        .parent()
-        .ok_or("Failed to get launcher directory")?
-        .to_path_buf();
-    
-    // Create AntChillGame directory if it doesn't exist
-    let game_base_dir = launcher_dir.join("AntChillGame");
-    std::fs::create_dir_all(&game_base_dir).map_err(|e| e.to_string())?;
-    
-    // Get version from parameter or use default
+async fn download_game_with_progress(
+    app_handle: tauri::AppHandle,
+    game_id: String,
+    download_url: String,
+    url_name: String,
+    version: Option<String>,
+) -> Result<String, String> {
+    let mut emit_status = |status: &str,
+                           progress: Option<f64>,
+                           downloaded_bytes: u64,
+                           total_bytes: Option<u64>,
+                           speed: u64,
+                           message: Option<String>,
+                           install_dir: Option<String>,
+                           executable_path: Option<String>| {
+        let payload = DownloadProgressPayload {
+            game_id: game_id.clone(),
+            url_name: url_name.clone(),
+            status: status.to_string(),
+            progress,
+            downloaded_bytes,
+            total_bytes,
+            speed_bytes_per_second: speed,
+            message,
+            install_dir,
+            executable_path,
+        };
+
+        if let Err(err) = app_handle.emit_all("download-progress", payload) {
+            eprintln!("Failed to emit download-progress event: {}", err);
+        }
+    };
+
+    let game_base_dir = get_game_base_directory()?;
+
     let version = version.unwrap_or_else(|| "0.01".to_string());
     let games_dir = game_base_dir.join(format!("{}.v{}", game_id, version));
+    if games_dir.exists() {
+        println!("Clearing existing installation directory: {:?}", games_dir);
+        std::fs::remove_dir_all(&games_dir)
+            .map_err(|e| format!("Failed to clear existing installation: {}", e))?;
+    }
     std::fs::create_dir_all(&games_dir).map_err(|e| e.to_string())?;
-    
-    let zip_path = games_dir.join("game.zip");
-    
+
+    let zip_path = games_dir.join("download.zip");
+
     println!("Starting download from {}: {}", url_name, download_url);
-    
-    // Download file with progress tracking
+    emit_status("started", Some(0.0), 0, None, 0, None, None, None);
+
     let response = reqwest::get(&download_url).await.map_err(|e| {
         println!("Download failed from {}: {}", url_name, e);
-        e.to_string()
+        let message = format!("Failed to start download: {}", e);
+        emit_status(
+            "error",
+            Some(0.0),
+            0,
+            None,
+            0,
+            Some(message.clone()),
+            None,
+            None,
+        );
+        message
     })?;
-    
+
     if !response.status().is_success() {
         let error_msg = format!("HTTP error {} from {}", response.status(), url_name);
-        println!("{}", error_msg);
+        emit_status(
+            "error",
+            Some(0.0),
+            0,
+            None,
+            0,
+            Some(error_msg.clone()),
+            None,
+            None,
+        );
         return Err(error_msg);
     }
-    
-    let total_size = response.content_length().unwrap_or(0);
+
+    let total_size = response.content_length();
     let mut downloaded: u64 = 0;
     let mut stream = response.bytes_stream();
     let mut file = std::fs::File::create(&zip_path).map_err(|e| e.to_string())?;
-    
+
     use futures_util::StreamExt;
-    
+
+    let mut last_emit = Instant::now();
+    let mut last_emitted_bytes: u64 = 0;
+
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| e.to_string())?;
         file.write_all(&chunk).map_err(|e| e.to_string())?;
         downloaded += chunk.len() as u64;
-        
-        if total_size > 0 {
-            let progress = (downloaded * 100) / total_size;
-            println!("Download progress: {}% ({}/{} bytes) from {}", progress, downloaded, total_size, url_name);
+
+        let should_emit = downloaded == total_size.unwrap_or(downloaded)
+            || last_emit.elapsed() >= Duration::from_millis(300);
+
+        if should_emit {
+            let elapsed_secs = last_emit.elapsed().as_secs_f64();
+            let speed = if elapsed_secs > 0.0 {
+                ((downloaded - last_emitted_bytes) as f64 / elapsed_secs) as u64
+            } else {
+                0
+            };
+
+            last_emit = Instant::now();
+            last_emitted_bytes = downloaded;
+
+            let progress = total_size.map(|size| {
+                if size == 0 {
+                    0.0
+                } else {
+                    (downloaded as f64 / size as f64) * 100.0
+                }
+            });
+
+            println!(
+                "Download progress: {:.2}% ({}/{} bytes) from {}",
+                progress.unwrap_or(0.0),
+                downloaded,
+                total_size.unwrap_or(0),
+                url_name
+            );
+
+            emit_status(
+                "progress",
+                progress,
+                downloaded,
+                total_size,
+                speed,
+                None,
+                Some(games_dir.to_string_lossy().to_string()),
+                None,
+            );
         }
     }
-    
+
     println!("Download completed from {}: {} bytes", url_name, downloaded);
-    
-    // Extract zip
+
+    emit_status(
+        "extracting",
+        Some(100.0),
+        downloaded,
+        total_size,
+        0,
+        None,
+        Some(games_dir.to_string_lossy().to_string()),
+        None,
+    );
+
     let file = std::fs::File::open(&zip_path).map_err(|e| e.to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
-    
+
     println!("Extracting {} files from archive", archive.len());
-    
+
     for i in 0..archive.len() {
         let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
         let outpath = games_dir.join(file.name());
-        
+
         if file.name().ends_with('/') {
             std::fs::create_dir_all(&outpath).map_err(|e| e.to_string())?;
         } else {
@@ -294,85 +430,99 @@ async fn download_game_with_progress(game_id: String, download_url: String, url_
             std::io::copy(&mut file, &mut outfile).map_err(|e| e.to_string())?;
         }
     }
-    
-    // Remove zip file
+
     std::fs::remove_file(&zip_path).map_err(|e| e.to_string())?;
-    
-    println!("Game {} installed successfully to: {:?}", game_id, games_dir);
+
+    let executable_path = find_executable_in_directory(&games_dir)?;
+
+    emit_status(
+        "completed",
+        Some(100.0),
+        downloaded,
+        total_size,
+        0,
+        None,
+        Some(games_dir.to_string_lossy().to_string()),
+        executable_path.clone(),
+    );
+
+    println!(
+        "Game {} installed successfully to: {:?}",
+        game_id, games_dir
+    );
     Ok(games_dir.to_string_lossy().to_string())
 }
 
 #[tauri::command]
 async fn launch_game(executable_path: String) -> Result<(), String> {
     let path = PathBuf::from(&executable_path);
-    
+
     #[cfg(target_os = "windows")]
     {
-        Command::new(&path)
-            .spawn()
-            .map_err(|e| e.to_string())?;
+        Command::new(&path).spawn().map_err(|e| e.to_string())?;
     }
-    
+
     #[cfg(not(target_os = "windows"))]
     {
-        Command::new(&path)
-            .spawn()
-            .map_err(|e| e.to_string())?;
+        Command::new(&path).spawn().map_err(|e| e.to_string())?;
     }
-    
+
     Ok(())
 }
 
 #[tauri::command]
 async fn get_games() -> Result<Vec<GameInfo>, String> {
-  // Check network first
-  if !check_network().await {
-    // Offline mode - try to load from local storage
-    if let Some(local_manifest) = load_local_manifest() {
-      println!("Using local manifest (offline mode)");
-      return Ok(local_manifest.games);
-    }
-    return Err("No internet connection and no local manifest available.".to_string());
-  }
-
-  // Online mode - try to fetch latest manifest
-  let manifest_url = "https://pub-72a5a57231ae489cb74409bdc120cb93.r2.dev/manifest.json";
-  
-  match reqwest::get(manifest_url).await {
-    Ok(response) => {
-      if response.status().is_success() {
-        match response.json::<GameManifest>().await {
-          Ok(manifest) => {
-            println!("Successfully loaded online manifest with {} games", manifest.games.len());
-            
-            // Save to local storage for offline use
-            if let Err(e) = save_local_manifest(&manifest) {
-              eprintln!("Failed to save local manifest: {}", e);
-            }
-            
-            return Ok(manifest.games);
-          }
-          Err(e) => eprintln!("Failed to parse online manifest: {}", e),
+    // Check network first
+    if !check_network().await {
+        // Offline mode - try to load from local storage
+        if let Some(local_manifest) = load_local_manifest() {
+            println!("Using local manifest (offline mode)");
+            return Ok(local_manifest.games);
         }
-      }
+        return Err("No internet connection and no local manifest available.".to_string());
     }
-    Err(e) => eprintln!("Failed to fetch online manifest: {}", e),
-  }
-  
-  // Fallback to local manifest if online fetch fails
-  if let Some(local_manifest) = load_local_manifest() {
-    println!("Using local manifest as fallback");
-    return Ok(local_manifest.games);
-  }
-  
-  // Final fallback to hardcoded data
-  get_offline_games().await
+
+    // Online mode - try to fetch latest manifest
+    let manifest_url = "https://pub-72a5a57231ae489cb74409bdc120cb93.r2.dev/manifest.json";
+
+    match reqwest::get(manifest_url).await {
+        Ok(response) => {
+            if response.status().is_success() {
+                match response.json::<GameManifest>().await {
+                    Ok(manifest) => {
+                        println!(
+                            "Successfully loaded online manifest with {} games",
+                            manifest.games.len()
+                        );
+
+                        // Save to local storage for offline use
+                        if let Err(e) = save_local_manifest(&manifest) {
+                            eprintln!("Failed to save local manifest: {}", e);
+                        }
+
+                        return Ok(manifest.games);
+                    }
+                    Err(e) => eprintln!("Failed to parse online manifest: {}", e),
+                }
+            }
+        }
+        Err(e) => eprintln!("Failed to fetch online manifest: {}", e),
+    }
+
+    // Fallback to local manifest if online fetch fails
+    if let Some(local_manifest) = load_local_manifest() {
+        println!("Using local manifest as fallback");
+        return Ok(local_manifest.games);
+    }
+
+    // Final fallback to hardcoded data
+    get_offline_games().await
 }
 
 #[tauri::command]
 async fn get_offline_games() -> Result<Vec<GameInfo>, String> {
-  // Return local games data for offline mode
-  let games = vec![
+    // Return local games data for offline mode
+    let games = vec![
     GameInfo {
       id: "brato_io".to_string(),
       name: "Brato.io".to_string(),
@@ -432,99 +582,102 @@ async fn get_offline_games() -> Result<Vec<GameInfo>, String> {
       repair_enabled: false,
     },
   ];
-  
-  Ok(games)
+
+    Ok(games)
 }
 
 #[tauri::command]
 async fn get_social_links() -> Result<Vec<SocialLink>, String> {
-  // Try to get from local manifest first
-  if let Some(local_manifest) = load_local_manifest() {
-    return Ok(local_manifest.social_links);
-  }
-  
-  // Fallback to hardcoded social links
-  let social_links = vec![
-    SocialLink {
-      id: "home".to_string(),
-      icon: "src-tauri/social/home.png".to_string(),
-      url: "https://anhhackta.github.io".to_string(),
-      tooltip: "Website".to_string(),
-      active: true,
-      action: None,
-    },
-    SocialLink {
-      id: "facebook".to_string(),
-      icon: "src-tauri/social/facebook.png".to_string(),
-      url: "https://facebook.com/anhhackta.official".to_string(),
-      tooltip: "Facebook".to_string(),
-      active: true,
-      action: None,
-    },
-    SocialLink {
-      id: "discord".to_string(),
-      icon: "src-tauri/social/discord.png".to_string(),
-      url: "https://discord.gg/3J2nemTtDq".to_string(),
-      tooltip: "Discord".to_string(),
-      active: true,
-      action: None,
-    },
-    SocialLink {
-      id: "email".to_string(),
-      icon: "src-tauri/social/email.png".to_string(),
-      url: "mailto:bahoangcran@gmail.com".to_string(),
-      tooltip: "Email Support".to_string(),
-      active: true,
-      action: None,
-    },
-    SocialLink {
-      id: "repair".to_string(),
-      icon: "src-tauri/social/repair.png".to_string(),
-      url: "#".to_string(),
-      tooltip: "Repair Game Files".to_string(),
-      active: true,
-      action: Some("repair_game".to_string()),
-    },
-  ];
-  
-  Ok(social_links)
+    // Try to get from local manifest first
+    if let Some(local_manifest) = load_local_manifest() {
+        return Ok(local_manifest.social_links);
+    }
+
+    // Fallback to hardcoded social links
+    let social_links = vec![
+        SocialLink {
+            id: "home".to_string(),
+            icon: "src-tauri/social/home.png".to_string(),
+            url: "https://anhhackta.github.io".to_string(),
+            tooltip: "Website".to_string(),
+            active: true,
+            action: None,
+        },
+        SocialLink {
+            id: "facebook".to_string(),
+            icon: "src-tauri/social/facebook.png".to_string(),
+            url: "https://facebook.com/anhhackta.official".to_string(),
+            tooltip: "Facebook".to_string(),
+            active: true,
+            action: None,
+        },
+        SocialLink {
+            id: "discord".to_string(),
+            icon: "src-tauri/social/discord.png".to_string(),
+            url: "https://discord.gg/3J2nemTtDq".to_string(),
+            tooltip: "Discord".to_string(),
+            active: true,
+            action: None,
+        },
+        SocialLink {
+            id: "email".to_string(),
+            icon: "src-tauri/social/email.png".to_string(),
+            url: "mailto:bahoangcran@gmail.com".to_string(),
+            tooltip: "Email Support".to_string(),
+            active: true,
+            action: None,
+        },
+        SocialLink {
+            id: "repair".to_string(),
+            icon: "src-tauri/social/repair.png".to_string(),
+            url: "#".to_string(),
+            tooltip: "Repair Game Files".to_string(),
+            active: true,
+            action: Some("repair_game".to_string()),
+        },
+    ];
+
+    Ok(social_links)
 }
 
 #[tauri::command]
 async fn get_backgrounds() -> Result<Vec<Background>, String> {
-  // Try to get from local manifest first
-  if let Some(local_manifest) = load_local_manifest() {
-    let backgrounds: Vec<Background> = local_manifest.backgrounds.values().cloned().collect();
-    return Ok(backgrounds);
-  }
-  
-  // Fallback to hardcoded backgrounds
-  let backgrounds = vec![
-    Background {
-      id: "brato_io_bg".to_string(),
-      name: "Brato.io Background".to_string(),
-      image_url: "https://files.catbox.moe/2d8fvz.png".to_string(),
-      active: true,
-    },
-    Background {
-      id: "antknow_bg".to_string(),
-      name: "AntKnow Background".to_string(),
-      image_url: "https://files.catbox.moe/6f2nc5.png".to_string(),
-      active: true,
-    },
-  ];
-  
-  Ok(backgrounds)
+    // Try to get from local manifest first
+    if let Some(local_manifest) = load_local_manifest() {
+        let backgrounds: Vec<Background> = local_manifest.backgrounds.values().cloned().collect();
+        return Ok(backgrounds);
+    }
+
+    // Fallback to hardcoded backgrounds
+    let backgrounds = vec![
+        Background {
+            id: "brato_io_bg".to_string(),
+            name: "Brato.io Background".to_string(),
+            image_url: "https://files.catbox.moe/2d8fvz.png".to_string(),
+            active: true,
+        },
+        Background {
+            id: "antknow_bg".to_string(),
+            name: "AntKnow Background".to_string(),
+            image_url: "https://files.catbox.moe/6f2nc5.png".to_string(),
+            active: true,
+        },
+    ];
+
+    Ok(backgrounds)
 }
 
 #[tauri::command]
-async fn check_game_updates(game_id: String, current_version: String) -> Result<UpdateInfo, String> {
+async fn check_game_updates(
+    game_id: String,
+    current_version: String,
+) -> Result<UpdateInfo, String> {
     if !check_network().await {
         return Err("No internet connection".to_string());
     }
 
     let manifest_url = "https://your-username.github.io/your-game-launcher/manifest.json";
-    
+
     match reqwest::get(manifest_url).await {
         Ok(response) => {
             if response.status().is_success() {
@@ -547,7 +700,7 @@ async fn check_game_updates(game_id: String, current_version: String) -> Result<
         }
         Err(e) => eprintln!("Failed to fetch manifest for update check: {}", e),
     }
-    
+
     Ok(UpdateInfo {
         current_version: current_version.clone(),
         latest_version: current_version,
@@ -558,54 +711,97 @@ async fn check_game_updates(game_id: String, current_version: String) -> Result<
 }
 
 #[tauri::command]
-async fn download_game_update(game_id: String, download_url: String) -> Result<String, String> {
-    let app_dir = tauri::api::path::app_data_dir(&tauri::Config::default())
-        .ok_or("Could not get app data directory")?;
-    
-    let games_dir = app_dir.join("games").join(&game_id);
-    
-    // Create backup of current installation
-    let backup_dir = app_dir.join("backups").join(&game_id).join(format!("backup_{}", chrono::Utc::now().timestamp()));
-    if games_dir.exists() {
-        std::fs::create_dir_all(&backup_dir).map_err(|e| e.to_string())?;
-        copy_dir_recursive(&games_dir, &backup_dir).map_err(|e| e.to_string())?;
+async fn download_game_update(
+    app_handle: tauri::AppHandle,
+    game_id: String,
+    download_url: String,
+    version: Option<String>,
+    current_version: Option<String>,
+) -> Result<String, String> {
+    let game_base_dir = get_game_base_directory()?;
+    let backups_root = game_base_dir.join("backups").join(&game_id);
+
+    if let Some(current_version) = current_version {
+        let current_installation = game_base_dir.join(format!("{}.v{}", game_id, current_version));
+        if current_installation.exists() {
+            let backup_dir =
+                backups_root.join(format!("backup_{}", chrono::Utc::now().timestamp()));
+            std::fs::create_dir_all(&backup_dir).map_err(|e| e.to_string())?;
+            copy_dir_recursive(&current_installation, &backup_dir).map_err(|e| e.to_string())?;
+        }
     }
-    
-    // Download and extract new version
-    let result = download_game(game_id.clone(), download_url).await;
-    
-    // Clean up old backups (keep only last 3)
-    cleanup_old_backups(&app_dir.join("backups").join(&game_id)).map_err(|e| e.to_string())?;
-    
+
+    let result = download_game_with_progress(
+        app_handle.clone(),
+        game_id.clone(),
+        download_url,
+        "Update".to_string(),
+        version,
+    )
+    .await;
+
+    cleanup_old_backups(&backups_root).map_err(|e| e.to_string())?;
+
     result
 }
 
 #[tauri::command]
 async fn repair_game(game_id: String) -> Result<RepairResult, String> {
-    let app_dir = tauri::api::path::app_data_dir(&tauri::Config::default())
-        .ok_or("Could not get app data directory")?;
-    
-    let games_dir = app_dir.join("games").join(&game_id);
-    
-    if !games_dir.exists() {
+    let game_base_dir = get_game_base_directory()?;
+
+    let mut target_directory: Option<PathBuf> = None;
+
+    if let Ok(entries) = std::fs::read_dir(&game_base_dir) {
+        let mut matching_dirs: Vec<PathBuf> = entries
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| path.is_dir())
+            .filter(|path| {
+                path.file_name()
+                    .map(|name| name.to_string_lossy().starts_with(&game_id))
+                    .unwrap_or(false)
+            })
+            .collect();
+
+        matching_dirs.sort_by(|a, b| {
+            let a_meta = a
+                .metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(SystemTime::UNIX_EPOCH);
+            let b_meta = b
+                .metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(SystemTime::UNIX_EPOCH);
+            b_meta.cmp(&a_meta)
+        });
+
+        if let Some(dir) = matching_dirs.into_iter().next() {
+            target_directory = Some(dir);
+        }
+    }
+
+    let Some(games_dir) = target_directory else {
         return Ok(RepairResult {
             success: false,
             repaired_files: vec![],
             errors: vec!["Game not found".to_string()],
             message: "Game not found".to_string(),
         });
-    }
-    
+    };
+
     let mut repaired_files = vec![];
     let mut errors = vec![];
-    
+
     for file in games_dir.read_dir().map_err(|e| e.to_string())? {
         let file = file.map_err(|e| e.to_string())?;
         let path = file.path();
-        
+
         if path.is_file() {
             let file_name = path.file_name().unwrap().to_string_lossy().to_string();
-            if file_name.ends_with(".exe") || file_name.ends_with(".dll") || file_name.ends_with(".config") {
+            if file_name.ends_with(".exe")
+                || file_name.ends_with(".dll")
+                || file_name.ends_with(".config")
+            {
                 if let Err(e) = std::fs::remove_file(&path) {
                     errors.push(format!("Failed to remove {}: {}", file_name, e));
                 } else {
@@ -614,13 +810,13 @@ async fn repair_game(game_id: String) -> Result<RepairResult, String> {
             }
         }
     }
-    
+
     let message = if errors.is_empty() {
         "Game repaired successfully".to_string()
     } else {
         "Game repaired with errors".to_string()
     };
-    
+
     Ok(RepairResult {
         success: errors.is_empty(),
         repaired_files,
@@ -637,7 +833,7 @@ async fn check_network_status() -> Result<NetworkStatus, String> {
     } else {
         "No internet connection. Launcher requires internet to function.".to_string()
     };
-    
+
     Ok(NetworkStatus { is_online, message })
 }
 
@@ -653,32 +849,28 @@ fn get_startup_status() -> Result<bool, String> {
 
 #[tauri::command]
 async fn minimize_window(app: tauri::AppHandle) -> Result<(), String> {
-    let window = app.get_window("main")
-        .ok_or("Window not found")?;
+    let window = app.get_window("main").ok_or("Window not found")?;
     window.minimize().map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
 async fn hide_window(app: tauri::AppHandle) -> Result<(), String> {
-    let window = app.get_window("main")
-        .ok_or("Window not found")?;
+    let window = app.get_window("main").ok_or("Window not found")?;
     window.hide().map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
 async fn close_window(app: tauri::AppHandle) -> Result<(), String> {
-    let window = app.get_window("main")
-        .ok_or("Window not found")?;
+    let window = app.get_window("main").ok_or("Window not found")?;
     window.close().map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
 async fn start_dragging(app: tauri::AppHandle) -> Result<(), String> {
-    let window = app.get_window("main")
-        .ok_or("Window not found")?;
+    let window = app.get_window("main").ok_or("Window not found")?;
     window.start_dragging().map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -686,43 +878,24 @@ async fn start_dragging(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 async fn scan_local_games(games: Vec<GameInfo>) -> Result<Vec<GameInfo>, String> {
     let mut scanned_games = games;
-    
-    // Get launcher directory (where the .exe is located)
-    let launcher_dir = std::env::current_exe()
-        .map_err(|e| format!("Failed to get launcher path: {}", e))?
-        .parent()
-        .ok_or("Failed to get launcher directory")?
-        .to_path_buf();
-    
-    println!("Launcher directory: {:?}", launcher_dir);
-    
-    // Look for AntChillGame directory in launcher directory
-    let game_base_dir = launcher_dir.join("AntChillGame");
-    println!("Looking for game base directory: {:?}", game_base_dir);
-    
-    // Create AntChillGame directory if it doesn't exist
-    if !game_base_dir.exists() {
-        println!("AntChillGame directory not found, creating it...");
-        std::fs::create_dir_all(&game_base_dir)
-            .map_err(|e| format!("Failed to create AntChillGame directory: {}", e))?;
-        println!("AntChillGame directory created successfully");
-    }
-    
-    println!("AntChillGame directory found, scanning for games...");
-    
+
+    let game_base_dir = get_game_base_directory()?;
+
+    println!("Using game base directory: {:?}", game_base_dir);
+
     for game in &mut scanned_games {
         println!("Scanning game: {} v{}", game.name, game.version);
-        
+
         if game.status == "coming_soon" {
             println!("Skipping coming soon game: {}", game.name);
             continue; // Skip coming soon games
         }
-        
+
         // Look for game directory with version
         let game_dir_pattern = format!("{}.v{}", game.id, game.version);
         let game_dir = game_base_dir.join(&game_dir_pattern);
         println!("Looking for game directory: {:?}", game_dir);
-        
+
         if game_dir.exists() {
             println!("Game directory found: {:?}", game_dir);
             // Look for executable file
@@ -730,7 +903,7 @@ async fn scan_local_games(games: Vec<GameInfo>) -> Result<Vec<GameInfo>, String>
             if let Some(exec_path) = executable_path {
                 println!("Executable found: {}", exec_path);
                 game.executable_path = Some(exec_path);
-                game.status = "available".to_string();
+                game.status = "installed".to_string();
             } else {
                 println!("No executable found in game directory");
             }
@@ -747,22 +920,31 @@ async fn scan_local_games(games: Vec<GameInfo>) -> Result<Vec<GameInfo>, String>
                 game.status = "available".to_string();
             }
         }
-        
-        println!("Final game status: {} - executable: {:?}", game.status, game.executable_path);
+
+        println!(
+            "Final game status: {} - executable: {:?}",
+            game.status, game.executable_path
+        );
     }
-    
+
     Ok(scanned_games)
+}
+
+#[tauri::command]
+fn get_game_installation_path() -> Result<String, String> {
+    let base_dir = get_game_base_directory()?;
+    Ok(base_dir.to_string_lossy().to_string())
 }
 
 fn find_executable_in_directory(dir: &std::path::Path) -> Result<Option<String>, String> {
     println!("Searching for executables in: {:?}", dir);
-    
+
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries {
             if let Ok(entry) = entry {
                 let path = entry.path();
                 println!("Checking file: {:?}", path);
-                
+
                 if path.is_file() {
                     if let Some(extension) = path.extension() {
                         println!("File extension: {:?}", extension);
@@ -777,7 +959,7 @@ fn find_executable_in_directory(dir: &std::path::Path) -> Result<Option<String>,
     } else {
         println!("Failed to read directory: {:?}", dir);
     }
-    
+
     println!("No executables found in directory");
     Ok(None)
 }
@@ -830,7 +1012,7 @@ async fn open_directory(path: String) -> Result<(), String> {
     Ok(())
 }
 
-fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> Result<(), std::io::Error> {
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<(), std::io::Error> {
     if src.is_dir() {
         std::fs::create_dir_all(dst)?;
         for entry in std::fs::read_dir(src)? {
@@ -838,7 +1020,7 @@ fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> Result<(), std::io::Error
             let ty = entry.file_type()?;
             let src_path = entry.path();
             let dst_path = dst.join(entry.file_name());
-            
+
             if ty.is_dir() {
                 copy_dir_recursive(&src_path, &dst_path)?;
             } else {
@@ -849,21 +1031,28 @@ fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> Result<(), std::io::Error
     Ok(())
 }
 
-fn cleanup_old_backups(backup_dir: &PathBuf) -> Result<(), std::io::Error> {
+fn cleanup_old_backups(backup_dir: &std::path::Path) -> Result<(), std::io::Error> {
     if !backup_dir.exists() {
         return Ok(());
     }
-    
+
     let mut entries: Vec<_> = std::fs::read_dir(backup_dir)?
         .filter_map(|entry| entry.ok())
         .collect();
-    
+
     // Sort by creation time (newest first)
     entries.sort_by(|a, b| {
-        a.metadata().unwrap().created().unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-            .cmp(&b.metadata().unwrap().created().unwrap_or(std::time::SystemTime::UNIX_EPOCH))
+        let a_time = a
+            .metadata()
+            .and_then(|m| m.created())
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+        let b_time = b
+            .metadata()
+            .and_then(|m| m.created())
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+        a_time.cmp(&b_time)
     });
-    
+
     // Remove old backups, keep only last 3
     if entries.len() > 3 {
         for entry in entries[..entries.len() - 3].iter() {
@@ -874,17 +1063,15 @@ fn cleanup_old_backups(backup_dir: &PathBuf) -> Result<(), std::io::Error> {
             }
         }
     }
-    
+
     Ok(())
 }
 
 fn create_system_tray() -> SystemTray {
     let quit = CustomMenuItem::new("quit".to_string(), "Thoát");
     let show = CustomMenuItem::new("show".to_string(), "Hiển thị");
-    let tray_menu = SystemTrayMenu::new()
-        .add_item(show)
-        .add_item(quit);
-    
+    let tray_menu = SystemTrayMenu::new().add_item(show).add_item(quit);
+
     SystemTray::new().with_menu(tray_menu)
 }
 
@@ -895,19 +1082,17 @@ fn handle_system_tray_event(app: &AppHandle, event: SystemTrayEvent) {
             window.show().unwrap();
             window.set_focus().unwrap();
         }
-        SystemTrayEvent::MenuItemClick { id, .. } => {
-            match id.as_str() {
-                "quit" => {
-                    std::process::exit(0);
-                }
-                "show" => {
-                    let window = app.get_window("main").unwrap();
-                    window.show().unwrap();
-                    window.set_focus().unwrap();
-                }
-                _ => {}
+        SystemTrayEvent::MenuItemClick { id, .. } => match id.as_str() {
+            "quit" => {
+                std::process::exit(0);
             }
-        }
+            "show" => {
+                let window = app.get_window("main").unwrap();
+                window.show().unwrap();
+                window.set_focus().unwrap();
+            }
+            _ => {}
+        },
         _ => {}
     }
 }
@@ -935,6 +1120,7 @@ fn main() {
             close_window,
             start_dragging,
             scan_local_games,
+            get_game_installation_path,
             open_directory
         ])
         .run(tauri::generate_context!())
