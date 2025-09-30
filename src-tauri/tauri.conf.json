@@ -7,7 +7,7 @@
     "withGlobalTauri": false
   },
   "package": {
-    "productName": "Game Launcher",
+    "productName": "AntChill Launcher",
     "version": "0.0.0"
   },
   "tauri": {
@@ -68,7 +68,7 @@
       {
         "fullscreen": false,
         "resizable": true,
-        "title": "Game Launcher",
+        "title": "AntChill Launcher",
         "width": 1200,
         "height": 800,
         "minWidth": 800,

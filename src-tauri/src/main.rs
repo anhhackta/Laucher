@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 use std::fs;
+use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{CustomMenuItem, SystemTray, SystemTrayMenu, SystemTrayEvent, Manager, AppHandle};
 use serde::{Deserialize, Serialize};
@@ -109,9 +110,17 @@ static mut LOCAL_MANIFEST: Option<LocalManifest> = None;
 
 // Check network connectivity
 async fn check_network() -> bool {
-  match reqwest::get("https://httpbin.org/get").await {
+  // Try to ping the manifest URL instead of httpbin
+  let manifest_url = "https://pub-72a5a57231ae489cb74409bdc120cb93.r2.dev/manifest.json";
+  match reqwest::get(manifest_url).await {
     Ok(response) => response.status().is_success(),
-    Err(_) => false,
+    Err(_) => {
+      // Fallback to Google DNS
+      match reqwest::get("https://8.8.8.8").await {
+        Ok(_) => true,
+        Err(_) => false,
+      }
+    }
   }
 }
 
@@ -204,19 +213,51 @@ fn is_startup_with_windows() -> Result<bool, String> {
 
 #[tauri::command]
 async fn download_game(game_id: String, download_url: String) -> Result<String, String> {
-    let app_dir = tauri::api::path::app_data_dir(&tauri::Config::default())
-        .ok_or("Could not get app data directory")?;
+    // Get the launcher directory (where the executable is)
+    let launcher_dir = std::env::current_dir().map_err(|e| e.to_string())?;
+    let project_root = launcher_dir.parent().ok_or("Could not get project root")?;
     
-    let games_dir = app_dir.join("games").join(&game_id);
+    // Create AntChillGame directory if it doesn't exist
+    let game_base_dir = project_root.join("AntChillGame");
+    std::fs::create_dir_all(&game_base_dir).map_err(|e| e.to_string())?;
+    
+    // Get game info to create proper folder structure
+    let manifest_url = "https://pub-72a5a57231ae489cb74409bdc120cb93.r2.dev/manifest.json";
+    let manifest_response = reqwest::get(manifest_url).await.map_err(|e| e.to_string())?;
+    let manifest: GameManifest = manifest_response.json().await.map_err(|e| e.to_string())?;
+    
+    let game_info = manifest.games.iter()
+        .find(|g| g.id == game_id)
+        .ok_or("Game not found in manifest")?;
+    
+    // Create game directory with pattern: [tên game].[phiên bản]
+    let game_name_lower = game_info.name.to_lowercase();
+    let game_folder_name = format!("{}.v{}", game_name_lower, game_info.version);
+    let games_dir = game_base_dir.join(&game_folder_name);
     std::fs::create_dir_all(&games_dir).map_err(|e| e.to_string())?;
     
     let zip_path = games_dir.join("game.zip");
     
-    // Download file
+    // Download file with progress tracking
     let response = reqwest::get(&download_url).await.map_err(|e| e.to_string())?;
-    let bytes = response.bytes().await.map_err(|e| e.to_string())?;
+    let total_size = response.content_length().unwrap_or(0);
     
-    std::fs::write(&zip_path, bytes).map_err(|e| e.to_string())?;
+    let mut downloaded: u64 = 0;
+    let mut stream = response.bytes_stream();
+    let mut file = std::fs::File::create(&zip_path).map_err(|e| e.to_string())?;
+    
+    use futures_util::StreamExt;
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| e.to_string())?;
+        file.write_all(&chunk).map_err(|e| e.to_string())?;
+        downloaded += chunk.len() as u64;
+        
+        // Log progress (in a real implementation, you'd emit events to frontend)
+        if total_size > 0 {
+            let progress = (downloaded as f64 / total_size as f64) * 100.0;
+            println!("Download progress: {:.1}%", progress);
+        }
+    }
     
     // Extract zip
     let file = std::fs::File::open(&zip_path).map_err(|e| e.to_string())?;
@@ -278,11 +319,14 @@ async fn get_games() -> Result<Vec<GameInfo>, String> {
     return Err("No internet connection and no local manifest available.".to_string());
   }
 
-  // Online mode - try to fetch latest manifest
+  // Online mode - try to fetch latest manifest with 1 minute timeout
   let manifest_url = "https://pub-72a5a57231ae489cb74409bdc120cb93.r2.dev/manifest.json";
   
-  match reqwest::get(manifest_url).await {
-    Ok(response) => {
+  match tokio::time::timeout(
+    std::time::Duration::from_secs(60),
+    reqwest::get(manifest_url)
+  ).await {
+    Ok(Ok(response)) => {
       if response.status().is_success() {
         match response.json::<GameManifest>().await {
           Ok(manifest) => {
@@ -299,7 +343,8 @@ async fn get_games() -> Result<Vec<GameInfo>, String> {
         }
       }
     }
-    Err(e) => eprintln!("Failed to fetch online manifest: {}", e),
+    Ok(Err(e)) => eprintln!("Failed to fetch online manifest: {}", e),
+    Err(_) => eprintln!("Online manifest timeout (1 minute), using offline"),
   }
   
   // Fallback to local manifest if online fetch fails
@@ -442,7 +487,7 @@ async fn check_game_updates(game_id: String, current_version: String) -> Result<
         return Err("No internet connection".to_string());
     }
 
-    let manifest_url = "https://your-username.github.io/your-game-launcher/manifest.json";
+    let manifest_url = "https://pub-72a5a57231ae489cb74409bdc120cb93.r2.dev/manifest.json";
     
     match reqwest::get(manifest_url).await {
         Ok(response) => {
@@ -450,6 +495,7 @@ async fn check_game_updates(game_id: String, current_version: String) -> Result<
                 match response.json::<GameManifest>().await {
                     Ok(manifest) => {
                         if let Some(game) = manifest.games.iter().find(|g| g.id == game_id) {
+                            // Simple version comparison - in production you'd want semantic versioning
                             let needs_update = game.version != current_version;
                             return Ok(UpdateInfo {
                                 current_version: current_version.clone(),
@@ -501,51 +547,75 @@ async fn download_game_update(game_id: String, download_url: String) -> Result<S
 
 #[tauri::command]
 async fn repair_game(game_id: String) -> Result<RepairResult, String> {
-    let app_dir = tauri::api::path::app_data_dir(&tauri::Config::default())
-        .ok_or("Could not get app data directory")?;
+    // Get project root directory
+    let project_root = std::env::current_dir()
+        .map_err(|e| e.to_string())?;
     
-    let games_dir = app_dir.join("games").join(&game_id);
+    let game_base_dir = project_root.join("AntChillGame");
     
-    if !games_dir.exists() {
+    if !game_base_dir.exists() {
         return Ok(RepairResult {
             success: false,
             repaired_files: vec![],
-            errors: vec!["Game not found".to_string()],
-            message: "Game not found".to_string(),
+            errors: vec!["Game directory not found".to_string()],
+            message: "Game directory not found".to_string(),
         });
     }
     
-    let mut repaired_files = vec![];
-    let mut errors = vec![];
+    // Find game folder by scanning for folders that match the game_id pattern
+    let mut game_folder_to_delete = None;
     
-    for file in games_dir.read_dir().map_err(|e| e.to_string())? {
-        let file = file.map_err(|e| e.to_string())?;
-        let path = file.path();
+    for entry in game_base_dir.read_dir().map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
         
-        if path.is_file() {
-            let file_name = path.file_name().unwrap().to_string_lossy().to_string();
-            if file_name.ends_with(".exe") || file_name.ends_with(".dll") || file_name.ends_with(".config") {
-                if let Err(e) = std::fs::remove_file(&path) {
-                    errors.push(format!("Failed to remove {}: {}", file_name, e));
-                } else {
-                    repaired_files.push(file_name);
-                }
+        if path.is_dir() {
+            let folder_name = path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("");
+            
+            // Check if this folder belongs to the game (e.g., broto.v001 for brato_io)
+            if folder_name.contains(&game_id) || folder_name.starts_with(&game_id.replace("_", "")) {
+                game_folder_to_delete = Some(path);
+                break;
             }
         }
     }
     
-    let message = if errors.is_empty() {
-        "Game repaired successfully".to_string()
-    } else {
-        "Game repaired with errors".to_string()
+    let game_folder = match game_folder_to_delete {
+        Some(folder) => folder,
+        None => {
+            return Ok(RepairResult {
+                success: false,
+                repaired_files: vec![],
+                errors: vec!["Game folder not found".to_string()],
+                message: "Game folder not found".to_string(),
+            });
+        }
     };
     
-    Ok(RepairResult {
-        success: errors.is_empty(),
-        repaired_files,
-        errors,
-        message,
-    })
+    // Delete the entire game folder
+    match std::fs::remove_dir_all(&game_folder) {
+        Ok(_) => {
+            Ok(RepairResult {
+                success: true,
+                repaired_files: vec![game_folder.file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("unknown")
+                    .to_string()],
+                errors: vec![],
+                message: "Game folder deleted successfully".to_string(),
+            })
+        }
+        Err(e) => {
+            Ok(RepairResult {
+                success: false,
+                repaired_files: vec![],
+                errors: vec![format!("Failed to delete game folder: {}", e)],
+                message: "Failed to delete game folder".to_string(),
+            })
+        }
+    }
 }
 
 #[tauri::command]
@@ -643,15 +713,36 @@ async fn scan_local_games(games: Vec<GameInfo>) -> Result<Vec<GameInfo>, String>
             continue; // Skip coming soon games
         }
         
-        // Look for game directory with version
-        let game_dir_pattern = format!("{}.v{}", game.name, game.version);
-        let game_dir = game_base_dir.join(&game_dir_pattern);
-        println!("Looking for game directory: {:?}", game_dir);
+        // Look for game directory with pattern: [tên game].[phiên bản]
+        let game_name_lower = game.name.to_lowercase();
+        let possible_patterns = vec![
+            format!("{}.v{}", game_name_lower, game.version),
+            format!("{}.{}", game_name_lower, game.version),
+            format!("{}.v{}", game.name, game.version),
+            format!("{}.{}", game.name, game.version),
+            format!("{}.v{}", game_name_lower.to_uppercase(), game.version),
+            format!("{}.{}", game_name_lower.to_uppercase(), game.version),
+            // Fallback patterns
+            format!("{}/{}", game.id, format!("{}.v{}", game_name_lower, game.version)),
+            format!("{}/{}", game.id, format!("{}.{}", game_name_lower, game.version)),
+            game_name_lower.clone(),
+            game.name.clone(),
+        ];
         
-        if game_dir.exists() {
-            println!("Game directory found: {:?}", game_dir);
+        let mut game_dir = None;
+        for pattern in &possible_patterns {
+            let test_dir = game_base_dir.join(pattern);
+            println!("Looking for game directory: {:?}", test_dir);
+            if test_dir.exists() {
+                game_dir = Some(test_dir);
+                break;
+            }
+        }
+        
+        if let Some(found_dir) = game_dir {
+            println!("Game directory found: {:?}", found_dir);
             // Look for executable file
-            let executable_path = find_executable_in_directory(&game_dir)?;
+            let executable_path = find_executable_in_directory(&found_dir)?;
             if let Some(exec_path) = executable_path {
                 println!("Executable found: {}", exec_path);
                 game.executable_path = Some(exec_path);
@@ -682,6 +773,50 @@ async fn scan_local_games(games: Vec<GameInfo>) -> Result<Vec<GameInfo>, String>
 fn find_executable_in_directory(dir: &std::path::Path) -> Result<Option<String>, String> {
     println!("Searching for executables in: {:?}", dir);
     
+    // First, try to find game executable with pattern: [tên game].exe
+    // Get the directory name to determine game name
+    let dir_name = dir.file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    
+    // Extract game name from folder name (e.g., "broto.v001" -> "broto")
+    let game_name = if let Some(dot_pos) = dir_name.find('.') {
+        &dir_name[..dot_pos]
+    } else {
+        dir_name
+    };
+    
+    // Create owned strings first to avoid temporary value issues
+    let game_name_exe = format!("{}.exe", game_name);
+    let game_name_upper_exe = format!("{}.exe", game_name.to_uppercase());
+    let game_name_lower_exe = format!("{}.exe", game_name.to_lowercase());
+    
+    let common_names = vec![
+        // Try exact game name first
+        game_name_exe.as_str(),
+        game_name_upper_exe.as_str(),
+        game_name_lower_exe.as_str(),
+        // Common patterns
+        "Broto.exe", "BROTO.exe", "broto.exe",
+        "Brato.exe", "BRATO.exe", "brato.exe",
+        "antknow.exe", "AntKnow.exe", "ANTKNOW.exe",
+        "game.exe", "Game.exe", "GAME.exe",
+        "main.exe", "Main.exe", "MAIN.exe",
+        "app.exe", "App.exe", "APP.exe",
+        "launcher.exe", "Launcher.exe", "LAUNCHER.exe",
+        "client.exe", "Client.exe", "CLIENT.exe"
+    ];
+    
+    // Check for common names first
+    for name in &common_names {
+        let exe_path = dir.join(name);
+        if exe_path.exists() && exe_path.is_file() {
+            println!("Found common executable: {:?}", exe_path);
+            return Ok(Some(exe_path.to_string_lossy().to_string()));
+        }
+    }
+    
+    // If no common names found, search for any .exe file
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries {
             if let Ok(entry) = entry {
@@ -701,6 +836,20 @@ fn find_executable_in_directory(dir: &std::path::Path) -> Result<Option<String>,
         }
     } else {
         println!("Failed to read directory: {:?}", dir);
+    }
+    
+    // Also check subdirectories for executables
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries {
+            if let Ok(entry) = entry {
+                let path = entry.path();
+                if path.is_dir() {
+                    if let Some(executable) = find_executable_in_directory(&path)? {
+                        return Ok(Some(executable));
+                    }
+                }
+            }
+        }
     }
     
     println!("No executables found in directory");
