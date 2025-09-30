@@ -1,79 +1,51 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/tauri';
-import { listen } from '@tauri-apps/api/event';
-import { open } from '@tauri-apps/api/shell';
-import { useLanguage } from './hooks/useLanguage';
-import './App.css';
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { invoke } from "@tauri-apps/api/tauri";
+import { listen } from "@tauri-apps/api/event";
+import "./App.css";
 
-interface DownloadUrl {
+type DownloadUrl = {
   name: string;
   url: string;
-  type: string;
-  size: string;
-  primary: boolean;
-}
+  size?: string;
+  primary?: boolean;
+  content_type?: string;
+};
 
-interface GameInfo {
+type GameEntry = {
   id: string;
   name: string;
   version: string;
   status: string;
-  download_url?: string;
-  download_urls?: DownloadUrl[];
-  executable_path?: string;
-  image_url: string;
-  logo_url?: string;
-  background_id: string;
-  description: string;
-  file_size?: string;
-  release_date?: string;
-  changelog?: string;
+  download_url?: string | null;
+  download_urls?: DownloadUrl[] | null;
+  executable_path?: string | null;
+  image_url?: string | null;
+  description?: string | null;
+  file_size?: string | null;
+  release_date?: string | null;
+  changelog?: string | null;
   is_coming_soon: boolean;
   repair_enabled: boolean;
-}
+  install_dir?: string | null;
+  installed_version?: string | null;
+};
 
-interface UpdateInfo {
-  current_version: string;
-  latest_version: string;
-  needs_update: boolean;
-  update_url?: string;
-  changelog?: string;
-}
+type DownloadProgress = {
+  status: string;
+  urlName: string;
+  progress?: number;
+  downloadedBytes: number;
+  totalBytes?: number;
+  speedBytesPerSecond: number;
+  message?: string | null;
+  installDir?: string | null;
+  executablePath?: string | null;
+};
 
-interface Background {
-  id: string;
-  name: string;
-  image_url: string;
-  active: boolean;
-}
-
-interface SocialLink {
-  id: string;
-  icon: string;
-  url: string;
-  tooltip: string;
-  active: boolean;
-  action?: string;
-}
-
-interface RepairResult {
-  success: boolean;
-  repaired_files: string[];
-  errors: string[];
-  message: string;
-}
-
-interface NetworkStatus {
-  is_online: boolean;
-  message: string;
-}
-
-type DownloadStatus = 'started' | 'progress' | 'extracting' | 'completed' | 'error';
-
-interface DownloadProgressPayload {
+type DownloadEventPayload = {
   game_id: string;
   url_name: string;
-  status: DownloadStatus;
+  status: string;
   progress?: number;
   downloaded_bytes: number;
   total_bytes?: number;
@@ -81,1387 +53,465 @@ interface DownloadProgressPayload {
   message?: string;
   install_dir?: string;
   executable_path?: string;
-}
+};
 
-interface DownloadProgressState {
-  progress: number;
-  urlName: string;
-  downloadedBytes: number;
-  totalBytes?: number;
-  speedBytesPerSecond: number;
-  status: DownloadStatus;
-  message?: string;
-  installDir?: string;
-  executablePath?: string;
-}
+const formatBytes = (bytes?: number) => {
+  if (!bytes || Number.isNaN(bytes)) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${value.toFixed(value >= 100 ? 0 : value >= 10 ? 1 : 2)} ${units[unitIndex]}`;
+};
+
+const formatSpeed = (bytesPerSecond?: number) => {
+  if (!bytesPerSecond || bytesPerSecond <= 0) {
+    return "0 B/s";
+  }
+
+  return `${formatBytes(bytesPerSecond)}/s`;
+};
+
+const getDefaultTheme = (): "light" | "dark" => {
+  if (typeof window === "undefined") {
+    return "light";
+  }
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+};
 
 function App() {
-  const { t, currentLanguage, changeLanguage } = useLanguage();
-  const [games, setGames] = useState<GameInfo[]>([]);
-  const [selectedGame, setSelectedGame] = useState<GameInfo | null>(null);
-  const [downloading, setDownloading] = useState<string | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
-  const [minimizeToTray, setMinimizeToTray] = useState(false);
-  const [currentTheme, setCurrentTheme] = useState<'light' | 'dark'>('light');
-  const [backgrounds, setBackgrounds] = useState<Background[]>([]);
-  const [socialLinks, setSocialLinks] = useState<SocialLink[]>([]);
-  const [currentBackground, setCurrentBackground] = useState<string>('');
-  const [networkStatus, setNetworkStatus] = useState<NetworkStatus>({ is_online: true, message: '' });
-  const [startupWithWindows, setStartupWithWindows] = useState(false);
+  const [games, setGames] = useState<GameEntry[]>([]);
+  const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [isOfflineMode, setIsOfflineMode] = useState(false);
-  const [lastOnlineCheck, setLastOnlineCheck] = useState<Date>(new Date());
-  const [activeSettingsTab, setActiveSettingsTab] = useState<'general' | 'game'>('general');
-  const [gameBaseDirectory, setGameBaseDirectory] = useState<string>('');
-  const [downloadProgress, setDownloadProgress] = useState<Record<string, DownloadProgressState>>({});
-  const [downloadServerSelection, setDownloadServerSelection] = useState<Record<string, string>>({});
-  const headerRef = useRef<HTMLDivElement>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [installDirectory, setInstallDirectory] = useState<string>("");
+  const [downloadProgress, setDownloadProgress] = useState<Record<string, DownloadProgress>>({});
+  const [serverSelection, setServerSelection] = useState<Record<string, string>>({});
+  const [theme, setTheme] = useState<"light" | "dark">(() => getDefaultTheme());
 
-  const refreshGames = useCallback(async (focusGameId?: string) => {
-    try {
-      const manifestGames = await invoke<GameInfo[]>('get_games');
-      let scannedGames = manifestGames;
-
+  const loadGames = useCallback(
+    async (focusId?: string) => {
       try {
-        scannedGames = await invoke<GameInfo[]>('scan_local_games', { games: manifestGames });
-      } catch (scanErr) {
-        console.error('Local scan failed during refresh:', scanErr);
-      }
+        setLoading(true);
+        setLoadError(null);
+        const data = await invoke<GameEntry[]>("load_games");
+        setGames(data);
+        setSelectedGameId((current) => {
+          if (focusId && data.some((game) => game.id === focusId)) {
+            return focusId;
+          }
 
-      setGames(scannedGames);
+          if (current && data.some((game) => game.id === current)) {
+            return current;
+          }
 
-      if (focusGameId) {
-        const updated = scannedGames.find((game) => game.id === focusGameId);
-        if (updated) {
-          setSelectedGame(updated);
-        }
-      } else if (selectedGame) {
-        const updated = scannedGames.find((game) => game.id === selectedGame.id);
-        if (updated) {
-          setSelectedGame(updated);
-        }
+          return data[0]?.id ?? null;
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setLoadError(message);
+      } finally {
+        setLoading(false);
       }
+    },
+    []
+  );
+
+  const refreshInstallDirectory = useCallback(async () => {
+    try {
+      const dir = await invoke<string>("get_install_directory");
+      setInstallDirectory(dir);
     } catch (err) {
-      console.error('Failed to refresh games:', err);
+      console.warn("Failed to resolve install directory", err);
     }
-  }, [selectedGame]);
-
-  useEffect(() => {
-    console.log('App mounted, calling loadLauncher...');
-    loadLauncher();
-
-    // Tắt F12 và Developer Tools
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Tắt F12
-      if (e.key === 'F12') {
-        e.preventDefault();
-        return false;
-      }
-      
-      // Tắt Ctrl+Shift+I (Developer Tools)
-      if (e.ctrlKey && e.shiftKey && e.key === 'I') {
-        e.preventDefault();
-        return false;
-      }
-      
-      // Tắt Ctrl+Shift+C (Inspect Element)
-      if (e.ctrlKey && e.shiftKey && e.key === 'C') {
-        e.preventDefault();
-        return false;
-      }
-      
-      // Tắt Ctrl+U (View Source)
-      if (e.ctrlKey && e.key === 'u') {
-        e.preventDefault();
-        return false;
-      }
-      
-      // Tắt Ctrl+Shift+J (Console)
-      if (e.ctrlKey && e.shiftKey && e.key === 'J') {
-        e.preventDefault();
-        return false;
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    
-    // Tắt right-click context menu
-    const handleContextMenu = (e: MouseEvent) => {
-      e.preventDefault();
-      return false;
-    };
-    
-    document.addEventListener('contextmenu', handleContextMenu);
-
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.removeEventListener('contextmenu', handleContextMenu);
-    };
   }, []);
 
   useEffect(() => {
-    const unlistenPromise = listen<DownloadProgressPayload>('download-progress', (event) => {
+    document.body.dataset.theme = theme;
+  }, [theme]);
+
+  useEffect(() => {
+    loadGames();
+    refreshInstallDirectory();
+  }, [loadGames, refreshInstallDirectory]);
+
+  useEffect(() => {
+    const unlistenPromise = listen<DownloadEventPayload>("download-progress", (event) => {
       const payload = event.payload;
-
-      setDownloadProgress((previous) => {
-        const existing = previous[payload.game_id];
-        const progressValue = payload.progress ?? existing?.progress ?? 0;
-
-        return {
-          ...previous,
-          [payload.game_id]: {
-            progress: progressValue,
-            urlName: payload.url_name,
-            downloadedBytes: payload.downloaded_bytes,
-            totalBytes: payload.total_bytes,
-            speedBytesPerSecond: payload.speed_bytes_per_second,
-            status: payload.status,
-            message: payload.message ?? existing?.message,
-            installDir: payload.install_dir ?? existing?.installDir,
-            executablePath: payload.executable_path ?? existing?.executablePath,
-          },
+      setDownloadProgress((prev) => {
+        const next: Record<string, DownloadProgress> = { ...prev };
+        next[payload.game_id] = {
+          status: payload.status,
+          urlName: payload.url_name,
+          progress: payload.progress ?? prev[payload.game_id]?.progress,
+          downloadedBytes: payload.downloaded_bytes,
+          totalBytes: payload.total_bytes,
+          speedBytesPerSecond: payload.speed_bytes_per_second,
+          message: payload.message,
+          installDir: payload.install_dir,
+          executablePath: payload.executable_path ?? prev[payload.game_id]?.executablePath,
         };
+        return next;
       });
 
-      if (payload.status === 'completed') {
-        setGames((previous) =>
-          previous.map((game) => {
-            if (game.id !== payload.game_id) {
-              return game;
-            }
-
-            const executablePath = payload.executable_path ?? game.executable_path;
-            const status = executablePath ? 'installed' : game.status;
-
-            return {
-              ...game,
-              status,
-              executable_path: executablePath,
-            };
-          })
-        );
-
-        setSelectedGame((previous) => {
-          if (!previous || previous.id !== payload.game_id) {
-            return previous;
-          }
-
-          const executablePath = payload.executable_path ?? previous.executable_path;
-          const status = executablePath ? 'installed' : previous.status;
-
-          return {
-            ...previous,
-            status,
-            executable_path: executablePath,
-          };
-        });
-
-        refreshGames(payload.game_id);
+      if (payload.status === "completed") {
+        loadGames(payload.game_id);
       }
     });
 
     return () => {
       unlistenPromise.then((unlisten) => unlisten());
     };
-  }, [refreshGames]);
+  }, [loadGames]);
 
-  // Kiểm tra kết nối định kỳ
-  useEffect(() => {
-    const checkConnectionInterval = setInterval(async () => {
-      try {
-        const result = await invoke<NetworkStatus>('check_network_status');
-        setNetworkStatus(result);
-        
-        if (result.is_online && isOfflineMode) {
-          // Chuyển từ offline về online
-          setIsOfflineMode(false);
-          setError(null);
-          // Reload games và social links khi có kết nối trở lại
-          const gamesResult = await invoke<GameInfo[]>('get_games');
-          setGames(gamesResult);
-          
-          const socialLinksResult = await invoke<SocialLink[]>('get_social_links');
-          setSocialLinks(socialLinksResult);
-        } else if (!result.is_online && !isOfflineMode) {
-          // Chuyển sang offline mode
-          setIsOfflineMode(true);
-          setError(null); // Không hiện error khi offline
-        }
-        
-        setLastOnlineCheck(new Date());
-      } catch (err) {
-        console.error('Connection check failed:', err);
-        if (!isOfflineMode) {
-          setIsOfflineMode(true);
-        }
-      }
-    }, 30000); // Kiểm tra mỗi 30 giây
+  const selectedGame = useMemo(
+    () => games.find((game) => game.id === selectedGameId) ?? null,
+    [games, selectedGameId]
+  );
 
-    return () => clearInterval(checkConnectionInterval);
-  }, [isOfflineMode]);
-
-  const loadLauncher = async () => {
-    try {
-      console.log('loadLauncher: Starting...');
-      setLoading(true);
-      
-      // Check network status
-      const networkResult = await invoke<NetworkStatus>('check_network_status');
-      setNetworkStatus(networkResult);
-      
-      if (!networkResult.is_online) {
-        // Chuyển sang offline mode
-        setIsOfflineMode(true);
-        setError(null); // Không hiện error khi offline
-
-        // Load offline games data
-        const offlineGames = await invoke<GameInfo[]>('get_offline_games');
-        setGames(offlineGames);
-
-        // Load offline social links
-        const offlineSocialLinks = await invoke<SocialLink[]>('get_social_links');
-        setSocialLinks(offlineSocialLinks);
-
-        try {
-          const baseDir = await invoke<string>('get_game_installation_path');
-          setGameBaseDirectory(baseDir);
-        } catch (pathErr) {
-          console.error('Failed to resolve game directory in offline mode:', pathErr);
-        }
-
-        if (offlineGames.length > 0) {
-          setCurrentBackground(offlineGames[0].background_id);
-        }
-
-        console.log('loadLauncher: Offline mode completed, setting loading to false');
-        setLoading(false);
-        return;
-      }
-
-      // Online mode - Load games normally
-      const gamesResult = await invoke<GameInfo[]>('get_games');
-      console.log('Games loaded from manifest:', gamesResult);
-      
-      // Scan local game directories to update game status
-      try {
-        const scannedGames = await invoke<GameInfo[]>('scan_local_games', { games: gamesResult });
-        console.log('Games after local scan:', scannedGames);
-        setGames(scannedGames);
-      } catch (scanError) {
-        console.error('Local scan failed, using manifest games:', scanError);
-        setGames(gamesResult);
-      }
-
-      try {
-        const baseDir = await invoke<string>('get_game_installation_path');
-        setGameBaseDirectory(baseDir);
-      } catch (pathErr) {
-        console.error('Failed to resolve game directory:', pathErr);
-      }
-
-      // Load social links from manifest
-      const socialLinksResult = await invoke<SocialLink[]>('get_social_links');
-      setSocialLinks(socialLinksResult);
-      
-      // Set default background
-      if (gamesResult.length > 0) {
-        setCurrentBackground(gamesResult[0].background_id);
-      }
-
-      // Load startup status
-      const startupResult = await invoke<boolean>('get_startup_status');
-      setStartupWithWindows(startupResult);
-
-      setIsOfflineMode(false);
-      console.log('loadLauncher: Online mode completed, setting loading to false');
-      setLoading(false);
-    } catch (err) {
-      // Fallback to offline mode
-      setIsOfflineMode(true);
-      setError(null); // Không hiện error khi offline
-      
-      try {
-        const offlineGames = await invoke<GameInfo[]>('get_offline_games');
-        setGames(offlineGames);
-        
-        const offlineSocialLinks = await invoke<SocialLink[]>('get_social_links');
-        setSocialLinks(offlineSocialLinks);
-        
-        if (offlineGames.length > 0) {
-          setCurrentBackground(offlineGames[0].background_id);
-        }
-      } catch (offlineErr) {
-        console.error('Failed to load offline data:', offlineErr);
-      }
-      
-      console.log('loadLauncher: Error fallback completed, setting loading to false');
-      setLoading(false);
+  const availableDownloads = useMemo(() => {
+    if (!selectedGame) {
+      return [] as DownloadUrl[];
     }
+
+    if (selectedGame.download_urls && selectedGame.download_urls.length > 0) {
+      return selectedGame.download_urls;
+    }
+
+    if (selectedGame.download_url) {
+      return [
+        {
+          name: "Primary Server",
+          url: selectedGame.download_url,
+          primary: true,
+        },
+      ];
+    }
+
+    return [] as DownloadUrl[];
+  }, [selectedGame]);
+
+  const selectedDownloadUrl = useMemo(() => {
+    if (!selectedGame) {
+      return undefined;
+    }
+
+    const stored = serverSelection[selectedGame.id];
+    const options = availableDownloads;
+
+    if (stored) {
+      return options.find((option) => option.url === stored) ?? options[0];
+    }
+
+    return options.find((option) => option.primary) ?? options[0];
+  }, [availableDownloads, selectedGame, serverSelection]);
+
+  const activeProgress = selectedGame ? downloadProgress[selectedGame.id] : undefined;
+  const busyStatuses = new Set(["started", "progress", "extracting"]);
+  const isBusy = activeProgress ? busyStatuses.has(activeProgress.status) : false;
+
+  const toggleTheme = () => {
+    setTheme((current) => (current === "light" ? "dark" : "light"));
   };
 
-  const handleDownloadGame = async (game: GameInfo) => {
-    if (!game.download_urls || game.download_urls.length === 0) {
-      console.error('No download URLs available for game:', game.name);
+  const handleInstall = async (game: GameEntry) => {
+    const downloadTarget = selectedDownloadUrl ?? availableDownloads[0];
+    if (!downloadTarget) {
       return;
     }
 
-    setDownloading(game.id);
-
-    // Try each download URL in order (primary first, then others)
-    const defaultOrder = [...game.download_urls].sort((a, b) => {
-      if (a.primary && !b.primary) return -1;
-      if (!a.primary && b.primary) return 1;
-      return 0;
-    });
-
-    const preferredName = downloadServerSelection[game.id];
-    const sortedUrls = preferredName
-      ? [
-          ...defaultOrder.filter((url) => url.name === preferredName),
-          ...defaultOrder.filter((url) => url.name !== preferredName),
-        ]
-      : defaultOrder;
-
-    if (!preferredName && sortedUrls.length > 0) {
-      setDownloadServerSelection((previous) => ({
-        ...previous,
-        [game.id]: sortedUrls[0].name,
-      }));
-    }
-
-    let lastError: string = '';
-
-    for (let i = 0; i < sortedUrls.length; i++) {
-      const downloadUrl = sortedUrls[i];
-      console.log(`Trying download URL ${i + 1}/${sortedUrls.length}: ${downloadUrl.name}`);
-
-      try {
-        // Set initial progress
-        setDownloadProgress(prev => ({
-          ...prev,
-          [game.id]: {
-            progress: 0,
-            urlName: downloadUrl.name,
-            downloadedBytes: 0,
-            totalBytes: undefined,
-            speedBytesPerSecond: 0,
-            status: 'started',
-          }
-        }));
-
-        await invoke<string>('download_game_with_progress', {
-          gameId: game.id,
-          downloadUrl: downloadUrl.url,
-          urlName: downloadUrl.name,
-          version: game.version
-        });
-
-        setDownloadProgress(prev => {
-          const next = { ...prev };
-          delete next[game.id];
-          return next;
-        });
-
-        setDownloading(null);
-
-        alert(`✅ ${game.name} downloaded and installed successfully!\n\nServer: ${downloadUrl.name}\n\nYou can now play the game!`);
-        console.log(`Download successful using ${downloadUrl.name}`);
-        return;
-
-      } catch (err) {
-        lastError = err as string;
-        console.error(`Download failed with ${downloadUrl.name}:`, err);
-
-        // If this is not the last URL, continue to next one
-        if (i < sortedUrls.length - 1) {
-          console.log(`Trying next download URL...`);
-          continue;
-        }
-      }
-    }
-
-    // All URLs failed
-    console.error('All download URLs failed. Last error:', lastError);
-
-    // Clear progress
-    setDownloadProgress(prev => {
-      const newProgress = { ...prev };
-      delete newProgress[game.id];
-      return newProgress;
-    });
-
-    // Show detailed error message
-    const errorMessage = `Download failed for ${game.name}!\n\n` +
-      `Tried ${sortedUrls.length} download sources:\n` +
-      sortedUrls.map((url, index) => `${index + 1}. ${url.name}`).join('\n') +
-      `\n\nLast error: ${lastError}\n\nPlease check your internet connection and try again.`;
-
-    alert(errorMessage);
-    setDownloading(null);
-  };
-
-  const handleLaunchGame = async (game: GameInfo) => {
-    if (!game.executable_path) return;
-    
-    try {
-      await invoke('launch_game', { 
-        executablePath: game.executable_path 
-      });
-    } catch (err) {
-      console.error('Launch failed:', err);
-    }
-  };
-
-  const handleCheckUpdates = async (game: GameInfo) => {
-    try {
-      const updateInfo: UpdateInfo = await invoke('check_game_updates', {
-        gameId: game.id,
-        currentVersion: game.version
-      });
-      
-      if (updateInfo.needs_update) {
-        if (confirm(`Update available: ${updateInfo.latest_version}\n\n${updateInfo.changelog || 'No changelog available'}\n\nUpdate now?`)) {
-          await handleGameUpdate(game, updateInfo.update_url!, updateInfo.latest_version);
-        }
-      } else {
-        alert('Game is up to date!');
-      }
-    } catch (err) {
-      console.error('Update check failed:', err);
-    }
-  };
-
-  const handleGameUpdate = async (game: GameInfo, updateUrl: string, newVersion?: string) => {
-    setDownloading(game.id);
-    setDownloadProgress(prev => ({
+    setDownloadProgress((prev) => ({
       ...prev,
       [game.id]: {
+        status: "started",
+        urlName: downloadTarget.name,
         progress: 0,
-        urlName: t('launcher.games.update_package'),
         downloadedBytes: 0,
         totalBytes: undefined,
         speedBytesPerSecond: 0,
-        status: 'started',
-      }
+      },
     }));
+
     try {
-      await invoke('download_game_update', {
+      await invoke("install_game", {
         gameId: game.id,
-        downloadUrl: updateUrl,
-        version: newVersion ?? game.version,
-        currentVersion: game.version
+        version: game.version,
+        downloadUrl: downloadTarget.url,
+        urlName: downloadTarget.name,
       });
-      alert('Game updated successfully!');
     } catch (err) {
-      console.error('Update failed:', err);
-      alert('Update failed. Please try again.');
-    } finally {
-      setDownloadProgress(prev => {
-        const next = { ...prev };
-        delete next[game.id];
-        return next;
-      });
-      setDownloading(null);
+      const message = err instanceof Error ? err.message : String(err);
+      setDownloadProgress((prev) => ({
+        ...prev,
+        [game.id]: {
+          status: "error",
+          urlName: downloadTarget.name,
+          progress: prev[game.id]?.progress,
+          downloadedBytes: prev[game.id]?.downloadedBytes ?? 0,
+          totalBytes: prev[game.id]?.totalBytes,
+          speedBytesPerSecond: 0,
+          message,
+          installDir: prev[game.id]?.installDir,
+          executablePath: prev[game.id]?.executablePath,
+        },
+      }));
     }
   };
 
-  const handleRepairGame = async (game: GameInfo) => {
-    if (!game.repair_enabled) return;
-    
+  const handlePlay = async (game: GameEntry) => {
+    if (!game.executable_path) {
+      return;
+    }
+
     try {
-      const result: RepairResult = await invoke('repair_game', {
-        gameId: game.id
-      });
-      
-      if (result.success) {
-        alert(`Game repaired successfully!\nRepaired files: ${result.repaired_files.join(', ')}`);
-      } else {
-        alert(`Repair completed with errors:\n${result.errors.join('\n')}`);
-      }
+      await invoke("launch_game", { executablePath: game.executable_path });
     } catch (err) {
-      console.error('Repair failed:', err);
-      alert('Repair failed. Please try again.');
+      const message = err instanceof Error ? err.message : String(err);
+      setDownloadProgress((prev) => ({
+        ...prev,
+        [game.id]: {
+          status: "error",
+          urlName: prev[game.id]?.urlName ?? "Launch",
+          progress: prev[game.id]?.progress,
+          downloadedBytes: prev[game.id]?.downloadedBytes ?? 0,
+          totalBytes: prev[game.id]?.totalBytes,
+          speedBytesPerSecond: 0,
+          message,
+          installDir: prev[game.id]?.installDir,
+          executablePath: game.executable_path ?? prev[game.id]?.executablePath,
+        },
+      }));
     }
   };
 
-  const toggleStartupWithWindows = async (enable: boolean) => {
-    try {
-      await invoke('toggle_startup_with_windows', { enable });
-      setStartupWithWindows(enable);
-    } catch (err) {
-      console.error('Failed to toggle startup:', err);
-    }
+  const handleServerChange = (gameId: string, url: string) => {
+    setServerSelection((prev) => ({ ...prev, [gameId]: url }));
   };
 
-  const handleSocialLink = (link: SocialLink) => {
-    if (link.action === 'repair' && selectedGame) {
-      handleRepairGame(selectedGame);
-    } else if (link.url) {
-      open(link.url);
-    }
-  };
-
-  const handleMinimize = async () => {
-    try {
-      if (minimizeToTray) {
-        // Minimize to tray
-        await invoke('hide_window');
-      } else {
-        // Regular minimize to taskbar
-        await invoke('minimize_window');
-      }
-    } catch (err) {
-      console.error('Minimize failed:', err);
-      // Fallback to regular minimize if tray operation fails
-      try {
-        await invoke('minimize_window');
-      } catch (fallbackErr) {
-        console.error('Fallback minimize also failed:', fallbackErr);
-      }
-    }
-  };
-
-  const handleClose = async () => {
-    try {
-      if (minimizeToTray) {
-        // Hide to tray instead of closing
-        await invoke('hide_window');
-      } else {
-        // Close the application
-        await invoke('close_window');
-      }
-    } catch (err) {
-      console.error('Close failed:', err);
-      // Fallback to regular close if tray operation fails
-      try {
-        await invoke('close_window');
-      } catch (fallbackErr) {
-        console.error('Fallback close also failed:', fallbackErr);
-      }
-    }
-  };
-
-  const handleHeaderMouseDown = async (e: React.MouseEvent) => {
-    // Only allow dragging from the header area, not from buttons
-    if (e.target === headerRef.current || (e.target as HTMLElement).closest('.logo')) {
-      try {
-        await invoke('start_dragging');
-      } catch (err) {
-        console.error('Start dragging failed:', err);
-      }
-    }
-  };
-
-  const handleHeaderMouseEnter = () => {
-    if (headerRef.current) {
-      headerRef.current.style.cursor = 'grab';
-    }
-  };
-
-  const handleHeaderMouseLeave = () => {
-    if (headerRef.current) {
-      headerRef.current.style.cursor = 'default';
-    }
-  };
-
-  const handleBrowseGameDirectory = async () => {
-    try {
-      const result = await invoke<string>('select_directory');
-      if (result) {
-        setGameBaseDirectory(result);
-      }
-    } catch (err) {
-      console.error('Failed to select directory:', err);
-    }
-  };
-
-  const handleChangeGamePath = async (game: GameInfo) => {
-    try {
-      const result = await invoke<string>('select_directory');
-      if (result) {
-        // Update game path logic here
-        console.log(`Changing path for ${game.name} to: ${result}`);
-      }
-    } catch (err) {
-      console.error('Failed to change game path:', err);
-    }
-  };
-
-  const handleLocateGame = async (game: GameInfo) => {
-    try {
-      const result = await invoke<string>('select_file', { 
-        title: `Select ${game.name} executable`,
-        filters: [{ name: 'Executable', extensions: ['exe'] }]
-      });
-      if (result) {
-        // Update game executable path logic here
-        console.log(`Located ${game.name} at: ${result}`);
-      }
-    } catch (err) {
-      console.error('Failed to locate game:', err);
-    }
-  };
-
-  const handleRescanGames = async () => {
-    try {
-      await refreshGames();
-      console.log('Games rescanned successfully');
-    } catch (err) {
-      console.error('Failed to rescan games:', err);
-    }
-  };
-
-  const handleOpenGameDirectory = async () => {
-    try {
-      if (!gameBaseDirectory) {
-        console.warn('Game base directory is not available yet.');
-        return;
-      }
-
-      await invoke('open_directory', { path: gameBaseDirectory });
-    } catch (err) {
-      console.error('Failed to open game directory:', err);
-    }
-  };
-
-  const handleGameSelect = (game: GameInfo) => {
-    setSelectedGame(game);
-    setCurrentBackground(game.background_id);
-
-    if (game.download_urls && game.download_urls.length > 0) {
-      setDownloadServerSelection((previous) => {
-        if (previous[game.id]) {
-          return previous;
-        }
-
-        const preferred =
-          game.download_urls!.find((url) => url.primary)?.name ??
-          game.download_urls![0]?.name;
-
-        if (!preferred) {
-          return previous;
-        }
-
-        return {
-          ...previous,
-          [game.id]: preferred,
-        };
-      });
-    }
-
-    // Apply game-specific theme colors
-    const gamePanel = document.querySelector('.game-panel');
-    if (gamePanel) {
-      // Remove existing theme classes
-      gamePanel.classList.remove('game-theme-1', 'game-theme-2', 'game-theme-3');
-      
-      // Add theme class based on game ID or name
-      if (game.id === 'game1' || game.name.toLowerCase().includes('anime')) {
-        gamePanel.classList.add('game-theme-1');
-      } else if (game.id === 'game2' || game.name.toLowerCase().includes('action')) {
-        gamePanel.classList.add('game-theme-2');
-      } else {
-        gamePanel.classList.add('game-theme-3');
-      }
-    }
-  };
-
-  const getGameStatusLabel = (game: GameInfo) => {
-    if (game.is_coming_soon || game.status === 'coming_soon') {
-      return t('launcher.games.coming_soon');
-    }
-
-    switch (game.status) {
-      case 'installed':
-        return t('launcher.games.installed');
-      case 'update_available':
-        return t('launcher.games.update_available');
+  const renderStatusChip = (status: string) => {
+    switch (status) {
+      case "installed":
+        return <span className="status-chip status-installed">Installed</span>;
+      case "update_available":
+        return <span className="status-chip status-update">Update</span>;
+      case "coming_soon":
+        return <span className="status-chip status-coming">Coming Soon</span>;
       default:
-        return t('launcher.games.available');
+        return <span className="status-chip status-available">Available</span>;
     }
   };
 
-  const formatBytes = (bytes?: number) => {
-    if (!bytes || bytes <= 0) return '0 B';
-    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-    const value = bytes / Math.pow(1024, exponent);
-    return `${value >= 100 ? value.toFixed(0) : value >= 10 ? value.toFixed(1) : value.toFixed(2)} ${units[exponent]}`;
+  const primaryActionLabel = (game: GameEntry) => {
+    if (game.status === "installed" && game.executable_path) {
+      return "Play";
+    }
+    if (game.status === "update_available") {
+      return "Update";
+    }
+    return "Install";
   };
 
-  const formatSpeed = (bytesPerSecond?: number) => {
-    if (!bytesPerSecond || bytesPerSecond <= 0) return t('launcher.games.speed_idle');
-    return `${formatBytes(bytesPerSecond)}/s`;
-  };
-
-  const getExampleInstallPath = () => {
-    if (!gameBaseDirectory || !selectedGame) {
-      return '';
-    }
-
-    const separator = gameBaseDirectory.includes('\\') ? '\\' : '/';
-    const normalizedBase = gameBaseDirectory.endsWith(separator)
-      ? gameBaseDirectory.slice(0, -1)
-      : gameBaseDirectory;
-
-    return `${normalizedBase}${separator}${selectedGame.id}.v${selectedGame.version}`;
-  };
-
-  console.log('App render: loading =', loading, 'games.length =', games.length, 'error =', error, 'isOfflineMode =', isOfflineMode);
-  
-  if (loading) {
-    return (
-      <div className="loading-screen">
-        <div className="loading-video-container">
-          <video 
-            className="loading-video" 
-            autoPlay 
-            muted 
-            loop
-            playsInline
-          >
-            <source src="/social/loading.mp4" type="video/mp4" />
-            Your browser does not support the video tag.
-          </video>
-        </div>
-        <div className="loading-spinner"></div>
-        <p>{t('launcher.loading')}</p>
-      </div>
-    );
-  }
-
-  // Chỉ hiện error screen khi thực sự có lỗi và không phải offline mode
-  if (error && !isOfflineMode) {
-    return (
-      <div className="error-screen">
-        <h2>{t('launcher.errors.connection_error')}</h2>
-        <p>{error}</p>
-        <div className="error-actions">
-          <button onClick={loadLauncher} className="retry-btn">
-            {t('launcher.errors.retry_connection')}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const activeDownload = selectedGame ? downloadProgress[selectedGame.id] : undefined;
-  const activeDownloadPercent = activeDownload ? Math.max(0, Math.min(100, Math.round(activeDownload.progress ?? 0))) : 0;
-  const activeDownloadSummary = activeDownload
-    ? activeDownload.totalBytes
-      ? `${formatBytes(activeDownload.downloadedBytes)} / ${formatBytes(activeDownload.totalBytes)}`
-      : formatBytes(activeDownload.downloadedBytes)
-    : '';
-  const activeDownloadSpeed = activeDownload && activeDownload.status === 'progress'
-    ? formatSpeed(activeDownload.speedBytesPerSecond)
-    : undefined;
-  const activeDownloadStatus = activeDownload
-    ? activeDownload.status === 'extracting'
-      ? t('launcher.games.extracting')
-      : `${activeDownloadPercent}%`
-    : '';
-
-  const backgroundStyle = selectedGame
-    ? { backgroundImage: `url(${selectedGame.image_url})` }
-    : {};
-
-  useEffect(() => {
-    if (!selectedGame || !selectedGame.download_urls || selectedGame.download_urls.length === 0) {
-      return;
-    }
-
-    setDownloadServerSelection((previous) => {
-      if (previous[selectedGame.id]) {
-        return previous;
-      }
-
-      const preferred =
-        selectedGame.download_urls!.find((url) => url.primary)?.name ??
-        selectedGame.download_urls![0]?.name;
-
-      if (!preferred) {
-        return previous;
-      }
-
-      return {
-        ...previous,
-        [selectedGame.id]: preferred,
-      };
-    });
-  }, [selectedGame]);
-
-  const resolveSocialIcon = (icon: string) => {
-    if (!icon) {
-      return '/social/home.png';
-    }
-
-    if (icon.startsWith('http://') || icon.startsWith('https://')) {
-      return icon;
-    }
-
-    const sanitized = icon.replace(/^src-tauri\//, '/');
-    if (sanitized.startsWith('/')) {
-      return sanitized;
-    }
-
-    return `/social/${sanitized}`;
-  };
-
-  const handleSocialLinkClick = (link: SocialLink) => {
-    if (link.action === 'repair_game') {
-      if (selectedGame && selectedGame.repair_enabled) {
-        handleRepairGame(selectedGame);
-      }
-      return;
-    }
-
-    if (link.url && link.url !== '#') {
-      open(link.url);
+  const actionHandler = (game: GameEntry) => {
+    if (game.status === "installed" && game.executable_path) {
+      void handlePlay(game);
+    } else if (!game.is_coming_soon) {
+      void handleInstall(game);
     }
   };
-
-  const selectedServerName = selectedGame?.download_urls && selectedGame.download_urls.length > 0
-    ? downloadServerSelection[selectedGame.id] ??
-      selectedGame.download_urls!.find((url) => url.primary)?.name ??
-      selectedGame.download_urls![0]?.name
-    : undefined;
 
   return (
-    <div className={`app ${currentTheme}`} style={backgroundStyle}>
-      {/* Status Indicators */}
-      {minimizeToTray && (
-        <div className="tray-mode-indicator">
-          {t('launcher.status.tray_mode')}
+    <div className="app">
+      <header className="app-header">
+        <div className="brand">
+          <div className="brand-badge">AC</div>
+          <span>AntChill Launcher</span>
         </div>
-      )}
-      
-      {isOfflineMode && (
-        <div className="offline-mode-indicator">
-          <span className="offline-icon">📱</span>
-          {t('launcher.status.offline_mode')}
-          <span className="last-check">
-            {t('launcher.status.last_check')} {lastOnlineCheck.toLocaleTimeString()}
-          </span>
+        <div className="toolbar">
+          <button className="refresh-button" onClick={() => loadGames(selectedGameId ?? undefined)}>
+            Refresh
+          </button>
+          <button className="theme-toggle" onClick={toggleTheme}>
+            {theme === "light" ? "Dark mode" : "Light mode"}
+          </button>
         </div>
-      )}
-      
-      {/* Header with Settings */}
-       <header 
-         className="header" 
-         ref={headerRef}
-         onMouseDown={handleHeaderMouseDown}
-         onMouseEnter={handleHeaderMouseEnter}
-         onMouseLeave={handleHeaderMouseLeave}
-       >
-         <div 
-           className="logo"
-           onClick={() => {
-             setSelectedGame(null);
-             setCurrentBackground('');
-           }}
-           style={{ cursor: 'pointer' }}
-         >
-           <img 
-             src="/logo.png" 
-             alt="AntChill Logo" 
-             className="logo-img" 
-             onClick={(e) => {
-               e.stopPropagation();
-               setSelectedGame(null);
-               setCurrentBackground('');
-             }}
-             style={{ cursor: 'pointer' }}
-           />
-           <span>{t('launcher.title')}</span>
-         </div>
-         <div className="header-controls">
-           <button 
-             className="header-btn settings-btn"
-             onClick={() => setShowSettings(!showSettings)}
-             title="Settings"
-           >
-             <img src="/social/settings.png" alt="Settings" />
-           </button>
-           <button 
-             className={`header-btn minimize-btn ${minimizeToTray ? 'active' : ''}`}
-             onClick={handleMinimize}
-             title={minimizeToTray ? "Minimize to Tray" : "Minimize to Taskbar"}
-           >
-             <img src="/social/minimize.png" alt="Minimize" />
-           </button>
-           <button 
-             className="header-btn close-btn"
-             onClick={handleClose}
-             title={minimizeToTray ? "Hide to Tray" : "Close"}
-           >
-             <img src="/social/close.png" alt="Close" />
-           </button>
-         </div>
-       </header>
+      </header>
 
-             {/* Settings Panel */}
-       {showSettings && (
-         <>
-           <div className="settings-overlay" onClick={() => setShowSettings(false)} />
-           <div className="settings-panel">
-             <div className="settings-header">
-               <h3>{t('launcher.settings.title')}</h3>
-               <button 
-                 className="close-settings-btn"
-                 onClick={() => setShowSettings(false)}
-               >
-                 ✕
-               </button>
-             </div>
-             
-             <div className="settings-content">
-               <div className="settings-sidebar">
-                 <div 
-                   className={`settings-tab ${activeSettingsTab === 'general' ? 'active' : ''}`}
-                   onClick={() => setActiveSettingsTab('general')}
-                 >
-                   {t('launcher.settings.general')}
-                 </div>
-                 <div 
-                   className={`settings-tab ${activeSettingsTab === 'game' ? 'active' : ''}`}
-                   onClick={() => setActiveSettingsTab('game')}
-                 >
-                   {t('launcher.settings.game')}
-                 </div>
-                 <div className="settings-version">
-                   {t('launcher.settings.version')}
-                 </div>
-               </div>
-               
-                                <div className="settings-main">
-                   {activeSettingsTab === 'general' && (
-                     <>
-                       <div className="settings-section">
-                         <h4>{t('launcher.settings.language')}</h4>
-                         <div className="radio-group horizontal">
-                           <label className="radio-option">
-                             <input
-                               type="radio"
-                               name="language"
-                               value="vi"
-                               checked={currentLanguage === 'vi'}
-                               onChange={(e) => changeLanguage(e.target.value as 'en' | 'vi')}
-                             />
-                             <span className="radio-custom"></span>
-                             <span className="radio-label">Tiếng Việt</span>
-                           </label>
-                           <label className="radio-option">
-                             <input
-                               type="radio"
-                               name="language"
-                               value="en"
-                               checked={currentLanguage === 'en'}
-                               onChange={(e) => changeLanguage(e.target.value as 'en' | 'vi')}
-                             />
-                             <span className="radio-custom"></span>
-                             <span className="radio-label">English</span>
-                           </label>
-                         </div>
-                       </div>
-
-                       <div className="settings-section">
-                         <h4>{t('launcher.settings.close_window')}</h4>
-                         <div className="radio-group vertical">
-                           <label className="radio-option">
-                             <input
-                               type="radio"
-                               name="closeBehavior"
-                               value="minimize"
-                               checked={minimizeToTray}
-                               onChange={(e) => setMinimizeToTray(e.target.checked)}
-                             />
-                             <span className="radio-custom"></span>
-                             <span className="radio-label">{t('launcher.settings.minimize_to_tray')}</span>
-                           </label>
-                           <label className="radio-option">
-                             <input
-                               type="radio"
-                               name="closeBehavior"
-                               value="exit"
-                               checked={!minimizeToTray}
-                               onChange={(e) => setMinimizeToTray(!e.target.checked)}
-                             />
-                             <span className="radio-custom"></span>
-                             <span className="radio-label">{t('launcher.settings.exit_launcher')}</span>
-                           </label>
-                         </div>
-                       </div>
-
-                       <div className="settings-section">
-                         <h4>{t('launcher.settings.startup_behavior')}</h4>
-                         <div className="toggle-option">
-                           <span>{t('launcher.settings.run_on_startup')}</span>
-                           <label className="toggle-switch">
-                             <input
-                               type="checkbox"
-                               checked={startupWithWindows}
-                               onChange={(e) => toggleStartupWithWindows(e.target.checked)}
-                             />
-                             <span className="toggle-slider"></span>
-                           </label>
-                         </div>
-                       </div>
-
-                       <div className="settings-section">
-                         <h4>{t('launcher.settings.theme')}</h4>
-                         <div className="radio-group horizontal">
-                           <label className="radio-option">
-                             <input
-                               type="radio"
-                               name="theme"
-                               value="light"
-                               checked={currentTheme === 'light'}
-                               onChange={(e) => setCurrentTheme(e.target.value as 'light' | 'dark')}
-                             />
-                             <span className="radio-custom"></span>
-                             <span className="radio-label">{t('launcher.settings.theme_light')}</span>
-                           </label>
-                           <label className="radio-option">
-                             <input
-                               type="radio"
-                               name="theme"
-                               value="dark"
-                               checked={currentTheme === 'dark'}
-                               onChange={(e) => setCurrentTheme(e.target.value as 'light' | 'dark')}
-                             />
-                             <span className="radio-custom"></span>
-                             <span className="radio-label">{t('launcher.settings.theme_dark')}</span>
-                           </label>
-                         </div>
-                       </div>
-
-                       <div className="settings-actions">
-                         <button 
-                           className="reload-launcher-btn"
-                           onClick={loadLauncher}
-                           title="Reload launcher and refresh all data"
-                         >
-                           {t('launcher.settings.reload_launcher')}
-                         </button>
-                        <button
-                          className="rescan-games-btn"
-                          onClick={handleRescanGames}
-                          title={t('launcher.settings.rescan_games')}
-                        >
-                          {t('launcher.settings.rescan_games')}
-                        </button>
-                       </div>
-                     </>
-                   )}
-
-                                       {activeSettingsTab === 'game' && (
-                      <>
-                        <div className="settings-section">
-                          <h4>{t('launcher.settings.game_installation_directory')}</h4>
-                          <div className="game-directory-info">
-                            <p>
-                              {t('launcher.settings.auto_search_info')}{' '}
-                              <code>{gameBaseDirectory || t('launcher.settings.detecting_directory')}</code>
-                            </p>
-                            {selectedGame && (
-                              <p>
-                                {t('launcher.settings.example')}{' '}
-                                <code>{getExampleInstallPath()}</code>
-                              </p>
-                            )}
-                          </div>
-
-                          <div className="game-directory-action">
-                            <div className="directory-info">
-                              <span className="directory-path">{gameBaseDirectory || t('launcher.settings.detecting_directory')}</span>
-                              <button
-                                className="open-directory-btn"
-                                onClick={() => handleOpenGameDirectory()}
-                              >
-                                {t('launcher.settings.open_folder')}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                        
-                        {/* Spacer để giữ kích thước tab bằng với General */}
-                        <div className="settings-section">
-                          <div className="settings-spacer"></div>
-                        </div>
-                      </>
-                    )}
-                 </div>
-             </div>
-           </div>
-         </>
-       )}
-
-      {/* Main Content */}
-      <div className="main-content">
-        {/* Game Sidebar */}
-        <div className="game-sidebar">
-          <h3>{t('launcher.games.title')}</h3>
-          {games.map((game) => (
-            <div
-              key={game.id}
-              className={`game-item ${selectedGame?.id === game.id ? 'selected' : ''}`}
-              onClick={() => handleGameSelect(game)}
-            >
-              <div className="game-logo-container">
-                {game.logo_url ? (
-                  <img 
-                    src={game.logo_url} 
-                    alt={`${game.name} Logo`}
-                    className="game-logo"
-                  />
-                ) : (
-                  <img 
-                    src={game.image_url} 
-                    alt={game.name}
-                    className="game-icon"
-                  />
-                )}
-              </div>
-              <div className="game-info">
-                <h4>{game.name}</h4>
-                <p>v{game.version}</p>
-                <span className={`status ${game.status}`}>
-                  {getGameStatusLabel(game)}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Game Panel */}
-        <div className="game-panel">
-          {selectedGame ? (
-            <>
-              <div className="game-header">
-                <h2>{selectedGame.name}</h2>
-                <div className="game-actions">
-                  {selectedGame.status === 'coming_soon' ? (
-                    <button className="btn-coming-soon" disabled>
-                      {t('launcher.games.coming_soon_btn')}
-                    </button>
-                  ) : (
-                    <>
-                      {selectedGame.executable_path ? (
-                        <>
-                          <button
-                            className="btn-play"
-                            onClick={() => handleLaunchGame(selectedGame)}
-                          >
-                            {t('launcher.games.play')}
-                          </button>
-                          
-                          <button 
-                            className="btn-update"
-                            onClick={() => handleCheckUpdates(selectedGame)}
-                          >
-                            {t('launcher.games.check_updates')}
-                          </button>
-                          
-                          {selectedGame.repair_enabled && (
-                            <button 
-                              className="btn-repair"
-                              onClick={() => handleRepairGame(selectedGame)}
-                            >
-                              {t('launcher.games.repair')}
-                            </button>
-                          )}
-                        </>
-                      ) : (
-                        <div className="download-container">
-                          <button
-                            className="btn-install"
-                            onClick={() => handleDownloadGame(selectedGame)}
-                            disabled={downloading === selectedGame.id}
-                          >
-                            {downloading === selectedGame.id ? (
-                              <div className="download-content">
-                                <div className="download-spinner"></div>
-                                <span>{t('launcher.games.downloading')}</span>
-                              </div>
-                            ) : (
-                              <div className="download-content">
-                                <span>{t('launcher.games.install')}</span>
-                                {selectedServerName && (
-                                  <span className="download-subtext">{selectedServerName}</span>
-                                )}
-                              </div>
-                            )}
-                          </button>
-                          {downloading === selectedGame.id && downloadProgress[selectedGame.id] && (
-                            <div className="download-progress">
-                              <div className="progress-bar">
-                                <div
-                                  className="progress-fill"
-                                  style={{ width: `${activeDownloadPercent}%` }}
-                                ></div>
-                              </div>
-                              <div className="progress-info">
-                                <span className="progress-text">
-                                  {activeDownloadStatus} · {activeDownload?.urlName}
-                                </span>
-                                <span className="progress-subtext">
-                                  {activeDownloadSummary}
-                                  {activeDownloadSpeed && (
-                                    <span className="progress-speed">{activeDownloadSpeed}</span>
-                                  )}
-                                </span>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </>
-                  )}
+      <div className="app-content">
+        <aside className="game-list">
+          <h2>Library</h2>
+          <div className="game-cards">
+            {games.map((game) => (
+              <div
+                key={game.id}
+                className={`game-card ${selectedGameId === game.id ? "active" : ""}`}
+                onClick={() => setSelectedGameId(game.id)}
+                role="button"
+              >
+                <img
+                  src={game.image_url ?? "https://dummyimage.com/256x256/1f2330/ffffff&text=Game"}
+                  alt={game.name}
+                />
+                <div className="game-card-info">
+                  <span className="game-card-title">{game.name}</span>
+                  <div className="game-card-meta">
+                    {renderStatusChip(game.status)}
+                    <span>v{game.installed_version ?? game.version}</span>
+                  </div>
                 </div>
               </div>
+            ))}
 
-              <div className="game-details">
-                <div className="game-image">
-                  <img src={selectedGame.image_url} alt={selectedGame.name} />
-                </div>
-                
-                <div className="game-info-details">
-                  <p className="description">{selectedGame.description}</p>
-                  
-                  {selectedGame.file_size && (
-                    <div className="game-stat">
-                      <strong>File Size:</strong> {selectedGame.file_size}
-                    </div>
-                  )}
-                  
-                  {selectedGame.release_date && (
-                    <div className="game-stat">
-                      <strong>Release Date:</strong> {selectedGame.release_date}
-                    </div>
-                  )}
-                  
-                  {selectedGame.download_urls && selectedGame.download_urls.length > 0 && (
-                    <div className="download-sources">
-                      <div className="download-sources-header">
-                        <div>
-                          <h4>📥 {t('launcher.games.server_section_title')}</h4>
-                          <p className="download-description">
-                            {t('launcher.games.server_section_hint')}
-                          </p>
-                        </div>
-                        {selectedServerName && (
-                          <span className="download-selected">
-                            {t('launcher.games.server_selected', { server: selectedServerName })}
-                          </span>
-                        )}
-                      </div>
-                      <div className="download-server-grid">
-                        {selectedGame.download_urls.map((url) => {
-                          const isSelected = selectedServerName === url.name;
-                          const isDownloadingThisServer =
-                            downloading === selectedGame.id && activeDownload?.urlName === url.name;
-                          const isDisabled = downloading === selectedGame.id && !isDownloadingThisServer;
+            {!loading && games.length === 0 && (
+              <div className="empty-state">No games found in manifest.</div>
+            )}
+          </div>
+        </aside>
 
-                          return (
-                            <button
-                              type="button"
-                              key={`${selectedGame.id}-${url.name}`}
-                              className={`server-card ${url.primary ? 'primary' : ''} ${
-                                isSelected ? 'selected' : ''
-                              }`}
-                              onClick={() => {
-                                if (downloading === selectedGame.id) {
-                                  return;
-                                }
-                                setDownloadServerSelection((previous) => ({
-                                  ...previous,
-                                  [selectedGame.id]: url.name,
-                                }));
-                              }}
-                              disabled={isDisabled}
-                            >
-                              <div className="server-card-head">
-                                <span className="server-name">{url.name}</span>
-                                <div className="server-badges">
-                                  {url.primary && (
-                                    <span className="server-badge primary-badge">
-                                      {t('launcher.games.server_primary')}
-                                    </span>
-                                  )}
-                                  {isSelected && (
-                                    <span className="server-badge selected-badge">
-                                      {t('launcher.games.server_selected_short')}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="server-card-meta">
-                                <span>📦 {url.size}</span>
-                                <span>🗃 {url.type}</span>
-                              </div>
-                              <div className="server-card-footer">
-                                {isDownloadingThisServer
-                                  ? t('launcher.games.server_in_use')
-                                  : t('launcher.games.server_select_action')}
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                  
-                  {selectedGame.changelog && (
-                    <div className="changelog">
-                      <h4>Changelog:</h4>
-                      <p>{selectedGame.changelog}</p>
-                    </div>
-                  )}
-                </div>
+        <main className="game-detail">
+          {loading && (
+            <div className="loading-state">Loading manifest…</div>
+          )}
+
+          {!loading && loadError && (
+            <div className="error-state">
+              <div>
+                <strong>Failed to load manifest.</strong>
+                <p>{loadError}</p>
+                <button className="refresh-button" onClick={() => loadGames()}>
+                  Try again
+                </button>
               </div>
-            </>
-          ) : (
-            <div className="welcome-screen">
-              <h2 className="welcome-title">{t('launcher.welcome.title')}</h2>
             </div>
           )}
-        </div>
+
+          {!loading && !loadError && !selectedGame && (
+            <div className="empty-state">Select a game to see details.</div>
+          )}
+
+          {!loading && !loadError && selectedGame && (
+            <>
+              <section className="detail-hero">
+                <div
+                  className="hero-image"
+                  style={{
+                    backgroundImage: `url(${selectedGame.image_url ?? "https://dummyimage.com/640x360/141824/ffffff&text=No+Artwork"})`,
+                  }}
+                />
+                <div className="hero-info">
+                  <div className="hero-top">
+                    <div>
+                      <h1 className="hero-title">{selectedGame.name}</h1>
+                      <div className="hero-meta">
+                        <span>Version: {selectedGame.version}</span>
+                        {selectedGame.file_size && <span>Size: {selectedGame.file_size}</span>}
+                        {selectedGame.release_date && <span>Released: {selectedGame.release_date}</span>}
+                        {installDirectory && <span>Install Path: {installDirectory}</span>}
+                      </div>
+                    </div>
+                  </div>
+                  {selectedGame.description && (
+                    <p className="hero-description">{selectedGame.description}</p>
+                  )}
+
+                  <div className="action-row">
+                    <button
+                      className="primary-button"
+                      onClick={() => actionHandler(selectedGame)}
+                      disabled={isBusy || selectedGame.is_coming_soon || (!selectedDownloadUrl && selectedGame.status !== "installed")}
+                    >
+                      {selectedGame.is_coming_soon ? "Coming Soon" : primaryActionLabel(selectedGame)}
+                    </button>
+
+                    {(selectedGame.status === "installed" || selectedGame.status === "update_available") && !selectedGame.is_coming_soon && (
+                      <button
+                        className="secondary-button"
+                        onClick={() => handleInstall(selectedGame)}
+                        disabled={isBusy || !selectedDownloadUrl}
+                      >
+                        Repair Install
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              <section className="info-panels">
+                <div className="info-card">
+                  <span>Status</span>
+                  <strong>{selectedGame.status.replace("_", " ")}</strong>
+                </div>
+                <div className="info-card">
+                  <span>Installed Version</span>
+                  <strong>{selectedGame.installed_version ?? "Not installed"}</strong>
+                </div>
+                <div className="info-card">
+                  <span>Install Directory</span>
+                  <strong>{selectedGame.install_dir ?? "–"}</strong>
+                </div>
+              </section>
+
+              <section className="download-panel">
+                <h3>Download Options</h3>
+
+                {availableDownloads.length === 0 ? (
+                  <p className="hero-description">
+                    Downloads will be available when the game is released.
+                  </p>
+                ) : (
+                  <div className="download-selection">
+                    <label htmlFor="server-select">Select server</label>
+                    <select
+                      id="server-select"
+                      value={selectedDownloadUrl?.url ?? ""}
+                      onChange={(event) => handleServerChange(selectedGame.id, event.target.value)}
+                    >
+                      {availableDownloads.map((option) => (
+                        <option key={option.url} value={option.url}>
+                          {option.name}
+                          {option.size ? ` • ${option.size}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {activeProgress && (
+                  <div className="progress-card">
+                    <div className="progress-meta">
+                      <span>{activeProgress.urlName}</span>
+                      <span>{activeProgress.status === "extracting" ? "Extracting" : `${Math.round(activeProgress.progress ?? 0)}%`}</span>
+                    </div>
+                    <div className="progress-bar-track">
+                      <div
+                        className="progress-bar-fill"
+                        style={{ width: `${Math.min(100, Math.round(activeProgress.progress ?? 0))}%` }}
+                      />
+                    </div>
+                    <div className="progress-meta">
+                      <span>
+                        {formatBytes(activeProgress.downloadedBytes)}
+                        {activeProgress.totalBytes ? ` / ${formatBytes(activeProgress.totalBytes)}` : ""}
+                      </span>
+                      <span>{formatSpeed(activeProgress.speedBytesPerSecond)}</span>
+                    </div>
+                    {activeProgress.message && <span className="hero-description">{activeProgress.message}</span>}
+                  </div>
+                )}
+              </section>
+            </>
+          )}
+        </main>
       </div>
-
-      {/* Social Sidebar */}
-      <aside className="social-sidebar">
-        <div className="social-card">
-          <span className="social-title">{t('launcher.social.connect')}</span>
-          <div className="social-actions">
-            {socialLinks
-              .filter((link) => link.active)
-              .map((link) => {
-                const isRepairAction = link.action === 'repair_game';
-                const isDisabled =
-                  isRepairAction && (!selectedGame || !selectedGame.repair_enabled);
-
-                return (
-                  <button
-                    key={link.id}
-                    type="button"
-                    className={`social-btn ${isDisabled ? 'disabled' : ''}`}
-                    onClick={() => {
-                      if (isDisabled) {
-                        return;
-                      }
-                      handleSocialLinkClick(link);
-                    }}
-                    title={link.tooltip}
-                    disabled={isDisabled}
-                  >
-                    <img src={resolveSocialIcon(link.icon)} alt={link.tooltip || link.id} />
-                  </button>
-                );
-              })}
-          </div>
-        </div>
-      </aside>
     </div>
   );
 }
