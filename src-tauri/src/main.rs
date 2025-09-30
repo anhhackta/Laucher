@@ -533,9 +533,9 @@ async fn get_offline_games() -> Result<Vec<GameInfo>, String> {
     // Return local games data for offline mode
     let games = vec![
     GameInfo {
-      id: "brato_io".to_string(),
-      name: "Brato.io".to_string(),
-      version: "0.01".to_string(),
+      id: "broto".to_string(),
+      name: "broto".to_string(),
+      version: "0.0.1".to_string(),
       status: "available".to_string(),
       download_url: Some("https://pub-72a5a57231ae489cb74409bdc120cb93.r2.dev/games-prod-antchill/demo.zip".to_string()),
       download_urls: Some(vec![
@@ -1034,7 +1034,6 @@ fn find_executable_in_directory(dir: &Path) -> Result<Option<String>, String> {
         println!("Selected executable: {:?}", best);
         return Ok(Some(best.to_string_lossy().to_string()));
     }
-
     Ok(None)
 }
 

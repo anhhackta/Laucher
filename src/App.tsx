@@ -255,7 +255,6 @@ function App() {
             executable_path: executablePath,
           };
         });
-
         refreshGames(payload.game_id);
       }
     });
@@ -424,7 +423,6 @@ function App() {
         [game.id]: sortedUrls[0].name,
       }));
     }
-
     let lastError: string = '';
 
     for (let i = 0; i < sortedUrls.length; i++) {
@@ -723,7 +721,6 @@ function App() {
   const handleGameSelect = (game: GameInfo) => {
     setSelectedGame(game);
     setCurrentBackground(game.background_id);
-
     if (game.download_urls && game.download_urls.length > 0) {
       setDownloadServerSelection((previous) => {
         if (previous[game.id]) {
@@ -744,7 +741,6 @@ function App() {
         };
       });
     }
-
     // Apply game-specific theme colors
     const gamePanel = document.querySelector('.game-panel');
     if (gamePanel) {
