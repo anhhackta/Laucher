@@ -9,12 +9,24 @@
       "title": "Games",
       "available": "Có sẵn",
       "coming_soon": "Sắp ra mắt",
+      "installed": "Đã cài đặt",
+      "update_available": "Có bản cập nhật",
       "play": "▶️ Chơi",
       "install": "📥 Cài đặt",
       "downloading": "⏳ Đang tải...",
+      "extracting": "📦 Đang giải nén...",
+      "speed_idle": "Đang chờ...",
+      "update_package": "Gói cập nhật",
       "check_updates": "🔄 Kiểm tra cập nhật",
       "repair": "🔧 Sửa chữa",
-      "coming_soon_btn": "🕐 Sắp ra mắt"
+      "coming_soon_btn": "🕐 Sắp ra mắt",
+      "server_section_title": "Máy chủ tải xuống",
+      "server_section_hint": "Chọn máy chủ ưu tiên. Launcher sẽ tự chuyển sang máy chủ khác nếu tải thất bại.",
+      "server_selected": "Đang chọn: {{server}}",
+      "server_selected_short": "Đang chọn",
+      "server_primary": "Ưu tiên",
+      "server_select_action": "Bấm để sử dụng máy chủ này",
+      "server_in_use": "Đang tải..."
     },
     "settings": {
       "title": "Cài đặt",
@@ -36,7 +48,9 @@
       "auto_search_info": "Launcher tự động tìm kiếm game trong:",
       "full_path": "Đường dẫn đầy đủ:",
       "example": "Ví dụ:",
-      "open_folder": "Mở thư mục"
+      "open_folder": "Mở thư mục",
+      "rescan_games": "🔍 Quét lại game",
+      "detecting_directory": "Đang xác định..."
     },
     "status": {
       "offline_mode": "Chế độ Offline",
@@ -47,6 +61,9 @@
       "connection_error": "Lỗi kết nối",
       "retry_connection": "🔄 Thử kết nối lại"
     }
+  },
+  "social": {
+    "connect": "Kết nối với chúng tôi"
   }
 }
 

@@ -9,12 +9,24 @@
       "title": "Games",
       "available": "Available",
       "coming_soon": "Coming Soon",
+      "installed": "Installed",
+      "update_available": "Update Available",
       "play": "▶️ Play",
       "install": "📥 Install",
       "downloading": "⏳ Downloading...",
+      "extracting": "📦 Extracting files...",
+      "speed_idle": "Waiting...",
+      "update_package": "Launcher Update",
       "check_updates": "🔄 Check Updates",
       "repair": "🔧 Repair",
-      "coming_soon_btn": "🕐 Coming Soon"
+      "coming_soon_btn": "🕐 Coming Soon",
+      "server_section_title": "Download servers",
+      "server_section_hint": "Choose your preferred server. The launcher will automatically fall back if a download fails.",
+      "server_selected": "Selected: {{server}}",
+      "server_selected_short": "Selected",
+      "server_primary": "Primary",
+      "server_select_action": "Click to use this server",
+      "server_in_use": "Downloading..."
     },
     "settings": {
       "title": "Settings",
@@ -36,7 +48,9 @@
       "auto_search_info": "Launcher automatically searches for games in:",
       "full_path": "Full path:",
       "example": "Example:",
-      "open_folder": "Open Folder"
+      "open_folder": "Open Folder",
+      "rescan_games": "🔍 Rescan Games",
+      "detecting_directory": "Detecting..."
     },
     "status": {
       "offline_mode": "Offline Mode",
@@ -47,6 +61,9 @@
       "connection_error": "Connection Error",
       "retry_connection": "🔄 Retry Connection"
     }
+  },
+  "social": {
+    "connect": "Stay connected"
   }
 }
 
