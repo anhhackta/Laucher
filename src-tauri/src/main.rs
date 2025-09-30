@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use std::path::PathBuf;
 use std::process::Command;
 use std::fs;
@@ -213,12 +215,13 @@ fn is_startup_with_windows() -> Result<bool, String> {
 
 #[tauri::command]
 async fn download_game(game_id: String, download_url: String) -> Result<String, String> {
-    // Get the launcher directory (where the executable is)
-    let launcher_dir = std::env::current_dir().map_err(|e| e.to_string())?;
-    let project_root = launcher_dir.parent().ok_or("Could not get project root")?;
-    
-    // Create AntChillGame directory if it doesn't exist
-    let game_base_dir = project_root.join("AntChillGame");
+    // Create AntChillGame directory next to launcher executable
+    let launcher_dir = std::env::current_exe()
+        .map_err(|e| e.to_string())?
+        .parent()
+        .ok_or("Could not get launcher directory")?
+        .to_path_buf();
+    let game_base_dir = launcher_dir.join("AntChillGame");
     std::fs::create_dir_all(&game_base_dir).map_err(|e| e.to_string())?;
     
     // Get game info to create proper folder structure
@@ -547,11 +550,14 @@ async fn download_game_update(game_id: String, download_url: String) -> Result<S
 
 #[tauri::command]
 async fn repair_game(game_id: String) -> Result<RepairResult, String> {
-    // Get project root directory
-    let project_root = std::env::current_dir()
-        .map_err(|e| e.to_string())?;
+    // Get launcher directory (where the executable is)
+    let launcher_dir = std::env::current_exe()
+        .map_err(|e| e.to_string())?
+        .parent()
+        .ok_or("Could not get launcher directory")?
+        .to_path_buf();
     
-    let game_base_dir = project_root.join("AntChillGame");
+    let game_base_dir = launcher_dir.join("AntChillGame");
     
     if !game_base_dir.exists() {
         return Ok(RepairResult {
@@ -683,18 +689,16 @@ async fn scan_local_games(games: Vec<GameInfo>) -> Result<Vec<GameInfo>, String>
         .ok_or("Failed to get launcher directory")?
         .to_path_buf();
     
-    // Go up to the project root (where AntChillGame folder should be)
-    let project_root = launcher_dir
-        .ancestors()
-        .find(|path| path.file_name().map_or(false, |name| name == "Laucher"))
-        .unwrap_or(&launcher_dir)
+    // Look for AntChillGame directory next to launcher executable
+    let launcher_exe_dir = std::env::current_exe()
+        .map_err(|e| e.to_string())?
+        .parent()
+        .ok_or("Could not get launcher directory")?
         .to_path_buf();
+    let game_base_dir = launcher_exe_dir.join("AntChillGame");
     
     println!("Launcher directory: {:?}", launcher_dir);
-    println!("Project root: {:?}", project_root);
-    
-    // Look for AntChillGame directory in project root
-    let game_base_dir = project_root.join("AntChillGame");
+    println!("Launcher exe directory: {:?}", launcher_exe_dir);
     println!("Looking for game base directory: {:?}", game_base_dir);
     
     if !game_base_dir.exists() {
