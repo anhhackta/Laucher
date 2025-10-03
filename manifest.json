@@ -38,7 +38,7 @@
       "background_id": "brato_io_bg",
       "description": "A space exploration game with stunning visuals and engaging gameplay.",
       "file_size": "37.54 MB",
-      "release_date": "2023-01-01",
+      "release_date": "5-9-2025",
       "changelog": "Initial release with space exploration mechanics.",
       "is_coming_soon": false,
       "repair_enabled": true
@@ -46,19 +46,19 @@
     {
       "id": "antknow",
       "name": "AntKnow", 
-      "version": "1.0",
-      "status": "coming_soon",
-      "download_url": null,
+      "version": "0.01",
+      "status": "available",
+      "download_url": "https://pub-72a5a57231ae489cb74409bdc120cb93.r2.dev/AntKnow.zip",
       "executable_path": null,
-      "image_url": "https://files.catbox.moe/6f2nc5.png",
+      "image_url": "https://files.catbox.moe/yqrb48.png",
       "logo_url": "https://lh3.googleusercontent.com/pw/AP1GczNZq-auYxUvVXyPKce-MVkITxLbwAkSv3IJLLwH7toRhEo_8oEHI4R0Vs9-lVluYdbCPegG0I2oIR_dSqRJXMkO5ibytMLneSvCxppwCus9boxvEqM=w2400",
       "background_id": "antknow_bg",
-      "description": "A mysterious adventure game set in ancient ruins.",
-      "file_size": null,
-      "release_date": null,
-      "changelog": null,
-      "is_coming_soon": true,
-      "repair_enabled": false
+      "description": "Game Cờ tỷ phú kết hợp Quiz do Hoàng phát triển",
+      "file_size": "107.33 MB",
+      "release_date": "3-10-2025",
+      "changelog": "bản phát hành đầu tiên demo lỗi",
+      "is_coming_soon": false,
+      "repair_enabled": true
     }
   ],
 
